@@ -16,4 +16,13 @@ LICENSE
 start.bat
 tools
 
+# 部署配置本身也不需要对外公开
+wrangler.jsonc
+wrangler.toml
+wrangler.json
+package.json
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
 # 注意：不要忽略 _headers，Workers 会读取它来设置响应头。
