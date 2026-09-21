@@ -1,0 +1,17 @@
+{
+  // Cloudflare Workers 静态资源部署配置
+  // 本项目是纯静态站点，没有 Worker 脚本，也不需要构建步骤：
+  // 直接由 Workers Static Assets 托管仓库根目录下的文件。
+  //
+  // 注意：这里的 name 必须与 Cloudflare 控制台里的项目名称完全一致。
+  "name": "npm-downloads-stats",
+  "compatibility_date": "2026-09-21",
+  "assets": {
+    // 站点文件就在仓库根目录（index.html / src / vendor ...）
+    "directory": "./",
+    // 访问 / 时自动返回 /index.html
+    "html_handling": "auto-trailing-slash",
+    // 不做 SPA 兜底：找不到就是 404
+    "not_found_handling": "none"
+  }
+}

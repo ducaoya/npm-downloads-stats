@@ -1,0 +1,19 @@
+# 只把站点文件上传到 Cloudflare，仓库里的工程文件不必对外暴露。
+# 语法与 .gitignore 相同，且必须放在 assets 目录（这里是仓库根目录）下。
+# 参考：https://developers.cloudflare.com/workers/static-assets/binding/
+
+# 版本库与本地工具产物
+.git
+.gitattributes
+.gitignore
+.assetsignore
+.wrangler
+node_modules
+
+# 仓库配套文件（非站点资源）
+README.md
+LICENSE
+start.bat
+tools
+
+# 注意：不要忽略 _headers，Workers 会读取它来设置响应头。

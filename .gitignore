@@ -5,3 +5,4 @@ desktop.ini
 *.log
 .idea/
 .vscode/
+.wrangler/

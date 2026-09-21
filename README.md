@@ -77,39 +77,58 @@ node tools/verify-data.js
 
 最近一次运行结果：**27 项通过 / 0 项失败**。
 
-## 部署到 Cloudflare Pages
+## 部署到 Cloudflare
 
-### 方式 A：Git 集成（推荐，push 自动部署）
+仓库里已经放好了 `wrangler.jsonc`，**不需要任何构建步骤**。两条路任选其一。
 
-1. 把代码推到 GitHub（见下方 Git 说明）。
-2. 打开 [Cloudflare Dashboard](https://dash.cloudflare.com/) → 左侧 **Workers & Pages** → **Create** → **Pages** 标签 → **Connect to Git**。
-3. 授权并选择本仓库。
-4. **Set up builds and deployments** 一栏按下面填写（本项目没有构建步骤）：
+### 方式 A：Workers + Git 集成（推荐，push 自动部署）
 
-   | 字段 | 值 |
-   | --- | --- |
-   | Production branch | `main` |
-   | Framework preset | `None` |
-   | Build command | 留空（重要，留空即可） |
-   | Build output directory | `/` |
+在控制台 **Workers & Pages → Create → Workers 标签 → Connect to Git** 中这样填：
 
-5. 点 **Save and Deploy**，几十秒后即可访问 `https://<项目名>.pages.dev`。
-6. 之后每次 `git push` 都会自动重新部署。
-7. 绑定自有域名：项目 → **Custom domains** → **Set up a custom domain**。
+| 字段 | 值 |
+| --- | --- |
+| 仓库 | `ducaoya/npm-downloads-stats` |
+| 项目名称 | `npm-downloads-stats`（**必须与 `wrangler.jsonc` 里的 `name` 完全一致**） |
+| 构建命令 | 留空 |
+| 部署命令 | `npx wrangler deploy` |
+| 非生产分支构建 | 按需（勾选后 PR 也会生成预览） |
 
-### 方式 B：wrangler 直接上传（无需 Git）
+点「部署」，成功后地址形如 `https://npm-downloads-stats.<你的账号子域>.workers.dev`。
+之后每次 push 到 `main` 都会自动重新部署。
+
+> **为什么必须要 `wrangler.jsonc`**：`wrangler deploy` 得知道「部署什么」。纯静态仓库没有 Worker 脚本，
+> 就必须用 `assets.directory` 指明静态资源目录，否则直接报
+> `Missing entry-point to Worker script or to assets directory`。
+> Cloudflare 目前**不会**自动推断资源目录（[workers-sdk#10563](https://github.com/cloudflare/workers-sdk/issues/10563) 仍是 open）。
+
+### 方式 B：本地 wrangler 直传（无需 Git）
 
 ```bash
-cd npm-downloads-stats
 npx wrangler login
-npx wrangler pages deploy . --project-name npm-downloads-stats
+npx wrangler deploy          # 读取 wrangler.jsonc，上传当前目录下的静态资源
+npx wrangler deploy --dry-run # 只校验配置、不上传
 ```
 
-首次执行会提示创建项目，随后返回 `https://<项目名>.pages.dev`。之后重复执行该命令即可更新。
+### 方式 C：Cloudflare Pages（备选）
 
-> 说明：`tools/`、`README.md` 会被一并上传，它们是公开内容且不含任何敏感信息；
-> 若不想暴露，可把它们移到仓库外或改用「方式 A + 只部署子目录」。
-> 仓库内的 `_headers` 已为 Cloudflare Pages 配好静态资源缓存策略。
+Pages 同样可用（功能已冻结但未废弃）。在 **Workers & Pages → Create → Pages 标签 → Connect to Git** 中填：
+
+| 字段 | 值 |
+| --- | --- |
+| Production branch | `main` |
+| Framework preset | `None` |
+| Build command | 留空 |
+| Build output directory | `/` |
+
+这种路径下 `wrangler.jsonc` 不会被用到，可忽略。
+
+### 哪些文件会被上传
+
+仓库内的 `.assetsignore`（语法同 `.gitignore`）已排除 `.git`、`LICENSE`、`README.md`、`start.bat`、`tools/` 等非站点文件，
+实际对外只有约 10 个文件（页面 + `src/*` + `vendor/echarts.min.js`）。
+
+`_headers` **不会**被当作静态文件提供，而是由平台解析后用于设置响应头（官方行为）；仓库内的 `_headers`
+已配好缓存策略（`vendor/*` 强缓存 1 年、`src/*` 5 分钟）。本地以 `file://` 打开时该文件不生效，无副作用。
 
 ## 隐私说明
 
@@ -124,7 +143,9 @@ npx wrangler pages deploy . --project-name npm-downloads-stats
 ```
 .
 ├── index.html            # 页面骨架
-├── _headers              # Cloudflare Pages 缓存策略
+├── wrangler.jsonc        # Cloudflare Workers 静态资源部署配置
+├── .assetsignore         # 部署时排除的非站点文件
+├── _headers              # 响应头 / 缓存策略（由 Cloudflare 解析，不作为文件提供）
 ├── start.bat             # Windows 一键起本地服务
 ├── src/
 │   ├── config.js         # 配置（用户名、手动补充包、缓存时长等）
