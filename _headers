@@ -1,0 +1,11 @@
+/vendor/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/src/*
+  Cache-Control: public, max-age=300
+
+/
+  Cache-Control: public, max-age=60
+
+/index.html
+  Cache-Control: public, max-age=60

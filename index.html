@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>npm 下载量统计 · @ducaoya</title>
+  <meta name="description" content="纯静态的 npm 包下载量统计看板，数据来自 npm 官方公开接口。" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234f7cff'/%3E%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='white'%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="src/style.css" />
+</head>
+<body>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">📦</div>
+        <div class="brand-text">
+          <h1>npm 下载量统计</h1>
+          <p class="sub">
+            <span class="mono" id="userName">@ducaoya</span>
+            <span class="dot-sep">·</span><span id="pkgCount">—</span>
+            <span class="dot-sep">·</span>数据截至 <span id="dataRange">—</span>
+            <span class="dot-sep">·</span>更新于 <span id="updatedAt">—</span>
+          </p>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="btnRefresh" title="忽略缓存重新拉取">↻ 刷新</button>
+        <button type="button" class="btn btn-icon" id="btnTheme" title="切换主题">◐</button>
+      </div>
+    </header>
+
+    <div class="banner hidden" id="banner" role="alert"></div>
+
+    <section class="cards" id="cards" aria-label="汇总指标"></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
+          <h2>下载量趋势</h2>
+          <span class="hint" id="trendHint"></span>
+        </div>
+        <div class="controls">
+          <div class="seg" id="segGranularity" role="group" aria-label="时间粒度">
+            <button type="button" data-value="day" class="active">日</button>
+            <button type="button" data-value="week">周</button>
+            <button type="button" data-value="month">月</button>
+            <button type="button" data-value="year">年</button>
+          </div>
+          <div class="seg" id="segRange" role="group" aria-label="时间区间">
+            <button type="button" data-value="7d">7 天</button>
+            <button type="button" data-value="30d" class="active">30 天</button>
+            <button type="button" data-value="90d">90 天</button>
+            <button type="button" data-value="365d">1 年</button>
+            <button type="button" data-value="ytd">今年</button>
+            <button type="button" data-value="all">全部</button>
+          </div>
+          <div class="seg" id="segType" role="group" aria-label="图表类型">
+            <button type="button" data-value="bar" class="active">堆叠柱</button>
+            <button type="button" data-value="area">堆叠面积</button>
+            <button type="button" data-value="line">折线</button>
+          </div>
+          <label class="switch" title="在趋势图上叠加合计折线">
+            <input type="checkbox" id="chkTotal" checked />
+            <span>合计线</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="chips" id="chips"></div>
+      <div class="chart chart-lg" id="trendChart"></div>
+      <p class="legend-note">滚轮 / 拖动下方滑块可缩放时间轴；点击图例可临时隐藏某个包；点击上方包标签可永久从图表中排除。</p>
+    </section>
+
+    <div class="grid-2">
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title"><h2>各包占比</h2><span class="hint" id="shareHint"></span></div>
+        </div>
+        <div class="chart chart-md" id="shareChart"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title"><h2>星期分布</h2><span class="hint">当前区间内每个星期的下载总量</span></div>
+        </div>
+        <div class="chart chart-md" id="dowChart"></div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
+          <h2>包明细</h2>
+          <span class="hint" id="tableHint"></span>
+        </div>
+        <div class="controls">
+          <button type="button" class="btn btn-sm" id="btnCopy">复制为表格</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="pkgTable">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="name">包名</th>
+              <th class="sortable num" data-sort="window">区间内</th>
+              <th class="sortable num" data-sort="share">占比</th>
+              <th class="sortable num" data-sort="today">今日</th>
+              <th class="sortable num" data-sort="yesterday">昨日</th>
+              <th class="sortable num" data-sort="week">近 7 天</th>
+              <th class="sortable num" data-sort="month">近 30 天</th>
+              <th class="sortable num" data-sort="ytd">本年</th>
+              <th class="sortable num" data-sort="total">累计</th>
+              <th>链接</th>
+            </tr>
+          </thead>
+          <tbody id="pkgTableBody"></tbody>
+          <tfoot id="pkgTableFoot"></tfoot>
+        </table>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>
+        数据来源：npm registry / downloads 公开接口（浏览器直连，无后端）·
+        本站为纯静态页面，可部署到任意静态托管
+      </span>
+      <span class="footer-actions">
+        <button type="button" class="link-btn" id="btnClearCache">清空本地缓存</button>
+        <button type="button" class="link-btn" id="btnToggleDebug">诊断信息</button>
+      </span>
+      <pre class="debug hidden" id="debugBox"></pre>
+    </footer>
+  </div>
+
+  <div class="loading hidden" id="loading">
+    <div class="spinner" aria-hidden="true"></div>
+    <span id="loadingText">加载中…</span>
+  </div>
+
+  <script src="vendor/echarts.min.js"></script>
+  <script src="src/config.js"></script>
+  <script src="src/api.js"></script>
+  <script src="src/aggregate.js"></script>
+  <script src="src/charts.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>

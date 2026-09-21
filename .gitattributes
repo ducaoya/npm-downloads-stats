@@ -1,0 +1,8 @@
+# 统一换行符，避免跨平台 diff 噪音
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF
+*.bat text eol=crlf
+
+# 第三方压缩产物原样保存
+vendor/echarts.min.js -text
