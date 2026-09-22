@@ -11,11 +11,15 @@
 
   var PREFS_KEY = 'npmdl:prefs';
   var FALLBACK_START = '2015-01-01'; // npm 下载量数据起点
+  var NOT_INDEXED_TIP =
+    'npm 下载量服务尚未收录该包（新发布的包通常需要 24~48 小时），' +
+    '这不等于「真的 0 下载」——包在 registry 上是正常的。';
 
   var state = {
     packages: [],
     metas: {},
     daily: {},
+    notIndexed: {},
     minDay: '',
     maxDay: '',
     granularity: CONFIG.defaultGranularity || 'day',
@@ -184,8 +188,14 @@
       })
       .then(function (result) {
         state.daily = Agg.buildDaily(result.series, state.packages);
+        state.notIndexed = {};
+        (result.notIndexed || []).forEach(function (name) {
+          state.notIndexed[name] = true;
+        });
         state.fetchedAt = result.fetchedAt;
         state.loaded = true;
+        var nIdx = Object.keys(state.notIndexed);
+        if (nIdx.length) log('未被下载量服务收录：' + nIdx.join(', '));
         log('拉取完成：' + state.minDay + ' ~ ' + state.maxDay + '，耗时 ' + (Date.now() - started) + 'ms' + (result.fromCache ? '（来自缓存）' : ''));
         hideLoading();
         render();
@@ -343,8 +353,10 @@
     var html = state.packages
       .map(function (name) {
         var off = !!state.hidden[name];
+        var nIdx = !!state.notIndexed[name];
         return (
-          '<button type="button" class="chip' + (off ? ' off' : '') + '" data-pkg="' + name + '">' +
+          '<button type="button" class="chip' + (off ? ' off' : '') + (nIdx ? ' not-indexed' : '') +
+          '" data-pkg="' + name + '"' + (nIdx ? ' title="' + NOT_INDEXED_TIP + '"' : '') + '>' +
           '<span class="dot" style="background:' + colorFor(name) + '"></span>' +
           '<span class="chip-name">' + name + '</span>' +
           '</button>'
@@ -438,6 +450,18 @@
    * 渲染：明细表
    * ------------------------------------------------------------------ */
 
+  /** 数值单元格：未收录的包不显示 0，而显示「—」并附提示 */
+  function numCell(value, extraClass, notIndexed) {
+    if (notIndexed) {
+      return '<td class="num not-indexed" title="' + NOT_INDEXED_TIP + '">—</td>';
+    }
+    return (
+      '<td class="num' + (extraClass ? ' ' + extraClass : '') + '">' +
+      Agg.formatNumber(value) +
+      '</td>'
+    );
+  }
+
   function renderTable(ctx) {
     var s = ctx.sums;
     var rows = state.packages.map(function (name) {
@@ -468,21 +492,28 @@
     el.pkgTableBody.innerHTML = rows
       .map(function (r) {
         var off = state.hidden[r.name] ? ' class="row-off"' : '';
+        var nIdx = !!state.notIndexed[r.name];
+        var badge = nIdx
+          ? '<span class="badge-warn" title="' + NOT_INDEXED_TIP + '">未收录</span>'
+          : '';
         return (
           '<tr' + off + '>' +
           '<td class="cell-name">' +
           '<span class="dot" style="background:' + colorFor(r.name) + '"></span>' +
           '<span class="name-text">' + r.name + '</span>' +
           (r.version ? '<span class="ver">v' + r.version + '</span>' : '') +
+          badge +
           '</td>' +
-          '<td class="num strong">' + Agg.formatNumber(r.window) + '</td>' +
-          '<td class="num">' + (r.share ? r.share.toFixed(1) + '%' : '—') + '</td>' +
-          '<td class="num">' + Agg.formatNumber(r.today) + '</td>' +
-          '<td class="num">' + Agg.formatNumber(r.yesterday) + '</td>' +
-          '<td class="num">' + Agg.formatNumber(r.week) + '</td>' +
-          '<td class="num">' + Agg.formatNumber(r.month) + '</td>' +
-          '<td class="num">' + Agg.formatNumber(r.ytd) + '</td>' +
-          '<td class="num strong">' + Agg.formatNumber(r.total) + '</td>' +
+          numCell(r.window, 'strong', nIdx) +
+          '<td class="num' + (nIdx ? ' not-indexed' : '') + '"' + (nIdx ? ' title="' + NOT_INDEXED_TIP + '"' : '') + '>' +
+          (nIdx || !r.share ? '—' : r.share.toFixed(1) + '%') +
+          '</td>' +
+          numCell(r.today, '', nIdx) +
+          numCell(r.yesterday, '', nIdx) +
+          numCell(r.week, '', nIdx) +
+          numCell(r.month, '', nIdx) +
+          numCell(r.ytd, '', nIdx) +
+          numCell(r.total, 'strong', nIdx) +
           '<td><a class="link" href="https://www.npmjs.com/package/' + encodeURIComponent(r.name) + '" target="_blank" rel="noopener">npm ↗</a></td>' +
           '</tr>'
         );
@@ -493,9 +524,16 @@
       window: s.cur.total, today: s.today.total, yesterday: s.yesterday.total,
       week: s.d7.total, month: s.d30.total, ytd: s.ytd.total, total: s.all.total,
     };
+    var totalLabel = '合计（' + rows.length + ' 个包';
+    var nIdxNames = state.packages.filter(function (n) {
+      return state.notIndexed[n];
+    });
+    if (nIdxNames.length) totalLabel += '，其中 ' + nIdxNames.length + ' 个未收录';
+    totalLabel += '）';
+
     el.pkgTableFoot.innerHTML =
       '<tr>' +
-      '<td>合计（' + rows.length + ' 个包）</td>' +
+      '<td>' + totalLabel + '</td>' +
       '<td class="num strong">' + Agg.formatNumber(totals.window) + '</td>' +
       '<td class="num">100%</td>' +
       '<td class="num">' + Agg.formatNumber(totals.today) + '</td>' +
@@ -507,7 +545,11 @@
       '<td></td>' +
       '</tr>';
 
-    el.tableHint.textContent = '「区间内」= 当前所选区间（' + s.cur.start + ' ~ ' + s.cur.end + '），点击表头可排序';
+    el.tableHint.textContent =
+      '「区间内」= 当前所选区间（' + s.cur.start + ' ~ ' + s.cur.end + '），点击表头可排序' +
+      (nIdxNames.length
+        ? '　·　' + nIdxNames.join('、') + '：npm 下载量服务尚未收录，显示「—」而非 0（新包一般需 24~48 小时）'
+        : '');
 
     var ths = document.querySelectorAll('#pkgTable th.sortable');
     Array.prototype.forEach.call(ths, function (th) {
@@ -570,6 +612,7 @@
 
     if (!state.loaded) {
       Charts.disposeAll();
+      state.notIndexed = {};
       el.cards.innerHTML = '';
       el.trendHint.textContent = '';
       el.shareHint.textContent = '';

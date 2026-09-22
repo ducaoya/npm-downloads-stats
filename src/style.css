@@ -598,6 +598,40 @@ a.link:hover {
   gap: 8px;
 }
 
+.table td.not-indexed {
+  color: var(--text-mute);
+  cursor: help;
+}
+
+/* 「未被 npm 下载量服务收录」的标记 */
+.badge-warn {
+  font-size: 10.5px;
+  line-height: 1.7;
+  padding: 0 6px;
+  margin-left: 2px;
+  border-radius: 999px;
+  color: #b45309;
+  background: rgba(245, 165, 36, 0.16);
+  border: 1px solid rgba(245, 165, 36, 0.42);
+  white-space: nowrap;
+  cursor: help;
+}
+
+:root[data-theme='dark'] .badge-warn {
+  color: #fcd34d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='auto'] .badge-warn {
+    color: #fcd34d;
+  }
+}
+
+.chip.not-indexed .chip-name {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
 .cell-name .dot {
   width: 8px;
   height: 8px;

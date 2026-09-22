@@ -307,13 +307,36 @@
       .join(',');
   }
 
-  /** 请求一个分片（多包批量），返回 { pkg: { 'YYYY-MM-DD': n } } */
+  /**
+   * 请求一个分片（多包批量）。
+   *
+   * 返回 { data: { pkg: { 'YYYY-MM-DD': n } }, notIndexed: [pkg] }。
+   *
+   * npm 对「下载量服务尚未收录的包」有两种表现，都必须识别出来：
+   *   - 批量请求：HTTP 200，该包对应值为 null（不是错误对象）
+   *   - 单包请求：HTTP 404 + { "error": "package xxx not found" }
+   * 这种情况和「已收录但下载量为 0」不同（后者会正常返回一串 0）。
+   */
   function fetchChunk(packages, chunk, options) {
     options = options || {};
-    var cacheKey = 'chunk:' + hash(packages.join('|')) + ':' + chunk.start + ':' + chunk.end;
+    var cacheKey = 'chunk:v2:' + hash(packages.join('|')) + ':' + chunk.start + ':' + chunk.end;
     if (!options.force) {
       var cached = cacheGet(cacheKey, CONFIG.cacheTTL);
       if (cached) return Promise.resolve(cached);
+    }
+
+    function emptyResult(names) {
+      var result = { data: {}, notIndexed: [] };
+      names.forEach(function (name) {
+        result.data[name] = {};
+      });
+      return result;
+    }
+
+    function fillFromSeries(target, name, rows) {
+      (rows || []).forEach(function (row) {
+        target[name][row.day] = row.downloads || 0;
+      });
     }
 
     var url =
@@ -323,44 +346,61 @@
 
     return fetchJSON(url).then(
       function (json) {
-        var out = {};
-        packages.forEach(function (name) {
-          out[name] = {};
-        });
+        var result = emptyResult(packages);
 
-        // 多包批量：{ pkg: { downloads: [...], ... } }
+        // 形态一：单包（指定单个包名时）→ { start, end, package, downloads: [...] }
         if (json && json.downloads && typeof json.downloads.length === 'number' && json.package) {
-          (json.downloads || []).forEach(function (row) {
-            out[json.package][row.day] = row.downloads || 0;
-          });
-        } else if (json && typeof json === 'object') {
-          // 单包：{ start, end, package, downloads: [...] }
+          fillFromSeries(result.data, json.package, json.downloads);
+          cacheSet(cacheKey, result);
+          return result;
+        }
+
+        // 形态二：多包批量 → { pkg1: {...}|null, pkg2: {...}|null }
+        if (json && typeof json === 'object') {
           packages.forEach(function (name) {
             var entry = json[name];
-            if (!entry || !entry.downloads) return;
-            entry.downloads.forEach(function (row) {
-              out[name][row.day] = row.downloads || 0;
-            });
+            if (!entry) {
+              // null（或字段缺失）= 下载量服务未收录
+              result.notIndexed.push(name);
+              return;
+            }
+            if (entry.error) {
+              result.notIndexed.push(name);
+              return;
+            }
+            if (!entry.downloads) return;
+            fillFromSeries(result.data, name, entry.downloads);
           });
         }
 
-        cacheSet(cacheKey, out);
-        return out;
+        cacheSet(cacheKey, result);
+        return result;
       },
       function (err) {
-        // 批量请求失败（例如其中某个包不存在），退化为逐包请求
-        if (packages.length <= 1) throw err;
+        // 单包 404 就是「未收录」，属于正常情况，不应当让整个页面加载失败
+        if (packages.length <= 1) {
+          if (err.status === 404) {
+            var alone = emptyResult(packages);
+            alone.notIndexed.push(packages[0]);
+            cacheSet(cacheKey, alone);
+            return alone;
+          }
+          throw err;
+        }
+
+        // 批量失败（限流 / 5xx 等）：退化为逐包请求
         return mapLimit(packages, CONFIG.maxConcurrent, function (name) {
           return fetchChunk([name], chunk, options).catch(function () {
-            var empty = {};
-            empty[name] = {};
-            return empty;
+            return emptyResult([name]);
           });
         }).then(function (parts) {
-          var merged = {};
+          var merged = emptyResult(packages);
           parts.forEach(function (part) {
-            Object.keys(part).forEach(function (k) {
-              merged[k] = Object.assign(merged[k] || {}, part[k]);
+            Object.keys(part.data).forEach(function (name) {
+              merged.data[name] = Object.assign(merged.data[name] || {}, part.data[name]);
+            });
+            part.notIndexed.forEach(function (name) {
+              if (merged.notIndexed.indexOf(name) < 0) merged.notIndexed.push(name);
             });
           });
           cacheSet(cacheKey, merged);
@@ -372,15 +412,15 @@
 
   /**
    * 拉取 [startISO, endISO] 区间内所有包的逐日下载量。
-   * @returns Promise<{ series: {pkg:{day:n}}, start, end, fetchedAt, fromCache }>
+   * @returns Promise<{ series: {pkg:{day:n}}, notIndexed: string[], start, end, fetchedAt, fromCache }>
    */
   function fetchDownloadSeries(packages, startISO, endISO, options) {
     options = options || {};
     if (!packages.length) {
-      return Promise.resolve({ series: {}, start: startISO, end: endISO, fetchedAt: Date.now() });
+      return Promise.resolve({ series: {}, notIndexed: [], start: startISO, end: endISO, fetchedAt: Date.now() });
     }
 
-    var cacheKey = 'series:' + hash(packages.join('|')) + ':' + startISO + ':' + endISO;
+    var cacheKey = 'series:v2:' + hash(packages.join('|')) + ':' + startISO + ':' + endISO;
     if (!options.force) {
       var cached = cacheGet(cacheKey, CONFIG.cacheTTL);
       if (cached) {
@@ -397,23 +437,28 @@
       });
     }).then(function (parts) {
       var series = {};
+      var notIndexed = [];
       packages.forEach(function (name) {
         series[name] = {};
       });
 
       parts.forEach(function (item) {
-        Object.keys(item.part).forEach(function (name) {
+        Object.keys(item.part.data).forEach(function (name) {
           if (!series[name]) series[name] = {};
-          var dayMap = item.part[name];
+          var dayMap = item.part.data[name];
           Object.keys(dayMap).forEach(function (day) {
-            // 同一天可能被相邻分片重复覆盖，取较大值即可（分片不重叠，正常不会发生）
+            // 分片互不重叠，正常不会重复；万一重复，先到先得
             if (series[name][day] == null) series[name][day] = dayMap[day];
           });
+        });
+        item.part.notIndexed.forEach(function (name) {
+          if (notIndexed.indexOf(name) < 0) notIndexed.push(name);
         });
       });
 
       var result = {
         series: series,
+        notIndexed: notIndexed,
         start: startISO,
         end: endISO,
         fetchedAt: Date.now(),

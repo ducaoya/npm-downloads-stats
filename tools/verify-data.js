@@ -136,12 +136,29 @@ function daysInclusive(start, end) {
   console.log('\n=== 3. 与 point 接口交叉验证（服务端求和 vs 本地聚合）===');
   console.log('  ⚠ point 接口对 >18 个月的区间同样静默截断，故按分片逐段对账');
 
-  const notIndexed = [];
+  const notIndexed = res.notIndexed || [];
+  console.log('  前端识别为未收录的包: ' + (notIndexed.length ? notIndexed.join(', ') : '(无)'));
+  check('未收录名单类型正确', Array.isArray(res.notIndexed), JSON.stringify(notIndexed));
+
   for (const name of names) {
+    const expectedNotIndexed = notIndexed.indexOf(name) >= 0;
+    const probe = await pointTotal(name, chunks[0].start, chunks[0].end);
+
+    if (expectedNotIndexed) {
+      const localAll = dayKeys.reduce((s, d) => s + (daily[d][name] || 0), 0);
+      check(
+        name + ' 被正确识别为未收录',
+        !!probe.error && localAll === 0,
+        'point=' + (probe.error || probe.total) + ' local=' + localAll
+      );
+      continue;
+    }
+
+    check(name + ' 未被误判为未收录', !probe.error, probe.error || 'point=' + probe.total);
+
     let localAll = 0;
     let pointAll = 0;
     let ok = true;
-    let skipped = false;
 
     for (const c of chunks) {
       const local = dayKeys.reduce((s, d) => {
@@ -151,19 +168,13 @@ function daysInclusive(start, end) {
 
       const pt = await pointTotal(name, c.start, c.end);
       if (pt.error) {
-        skipped = true;
-        if (notIndexed.indexOf(name) < 0) notIndexed.push(name);
+        ok = false;
         continue;
       }
       pointAll += pt.total;
       if (pt.total !== local) ok = false;
     }
 
-    if (skipped) {
-      ++passed;
-      console.log('  ~ ' + name + ' 跳过：downloads 服务尚未收录（本地统计 ' + localAll + '）');
-      continue;
-    }
     check(name + ' 全量合计（逐分片对账）', ok, 'point=' + pointAll + ' local=' + localAll);
 
     const w30 = Agg.resolvePreset('30d', minDay, maxDay);
@@ -210,7 +221,7 @@ function daysInclusive(start, end) {
   });
 
   if (notIndexed.length) {
-    console.log('\n  未收录的包（下载量通常为 0，属正常）: ' + notIndexed.join(', '));
+    console.log('\n  未收录的包（下载量服务尚未收录，不等于 0 下载）: ' + notIndexed.join(', '));
   }
 
   console.log('\n结果: ' + passed + ' 项通过, ' + failed + ' 项失败\n');
