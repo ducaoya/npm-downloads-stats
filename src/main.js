@@ -583,6 +583,9 @@
   }
 
   function renderRankPanel(ctx) {
+    // 注意：名次一律在「全部配置的包」中计算，chips 只决定图上画哪几条线。
+    // 否则点掉一个包标签就会让其它包集体上移一名，名次随显示开关变动，容易误导。
+    var all = state.packages;
     var packages = visiblePackages();
     if (!packages.length) {
       clearRankPanel();
@@ -591,13 +594,14 @@
     }
 
     var w = clampWindow(ctx.window);
-    var data = Agg.rankSeries(state.daily, packages, state.granularity, w.start, w.end);
+    var data = Agg.rankSeries(state.daily, all, state.granularity, w.start, w.end);
     var latest = data.rows[data.rows.length - 1] || null;
     var prev = data.rows[data.rows.length - 2] || null;
 
     var hint =
       w.start + ' ~ ' + w.end + ' · 按' + unitLabel() + '聚合 ' + data.buckets.length +
-      ' 个点 · ' + packages.length + ' 个包参与排名';
+      ' 个点 · 名次在全部 ' + all.length + ' 个包中计算' +
+      (all.length > packages.length ? '（图上只画已选的 ' + packages.length + ' 个）' : '');
 
     if (latest) {
       var top = null;

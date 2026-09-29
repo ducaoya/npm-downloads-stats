@@ -489,6 +489,7 @@
 
   function rankTooltipFormatter(options) {
     var rows = options.rows || [];
+    var packages = options.packages || [];
     return function (params) {
       if (!params || !params.length) return '';
       var bucket = rows[params[0].dataIndex];
@@ -499,8 +500,9 @@
         '<div style="margin-bottom:6px;opacity:.75">合计 ' +
         global.Aggregate.formatNumber(bucket.total) + ' 次下载</div>';
 
+      // 名次在全部包中计算，但 tooltip 只列当前画出来的那几个包
       var list = bucket.rows.filter(function (r) {
-        return r.rank != null;
+        return r.rank != null && packages.indexOf(r.name) >= 0;
       });
       if (!list.length) {
         html += '<div style="opacity:.6">该周期无下载量</div>';
@@ -579,7 +581,7 @@
       tooltip: Object.assign(baseTooltip(c), {
         trigger: 'axis',
         axisPointer: { type: 'line', lineStyle: { color: c.axis, type: 'dashed' } },
-        formatter: rankTooltipFormatter({ rows: options.rows || [], colorOf: colorOf }),
+        formatter: rankTooltipFormatter({ rows: options.rows || [], packages: packages, colorOf: colorOf }),
         confine: true,
       }),
       legend: {
