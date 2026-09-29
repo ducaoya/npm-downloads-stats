@@ -235,8 +235,9 @@ Pages 同样可用（功能已冻结但未废弃）。在 **Workers & Pages → 
 | `llms.txt` | [llmstxt.org](https://llmstxt.org/) 约定的站点摘要：能回答什么、怎么调用、数据来源、**已知限制**（尤其是「不要把未收录误读成 0 下载」「搜索名次不是下载量排名」） |
 | `index.html` | `canonical` / `og:*` / `twitter:*` / `theme-color` / `WebApplication` JSON-LD，并在页面底部保留一个**不依赖 JS** 的「这是什么 / 怎么用」区块（含 FAQ），让不执行 JS 的抓取器也能读到实质内容 |
 
-> ⚠️ **换域名必改**：`sitemap.xml`、`index.html` 的 `canonical` / `og:url` / JSON-LD `url`、`llms.txt` / `robots.txt` 里的链接都写死了
+> ⚠️ **换域名 / fork 后必改**：`sitemap.xml`、`index.html` 的 `canonical` / `og:url` / JSON-LD `url`、`llms.txt` / `robots.txt` 里的链接都写死了
 > `https://npm-downloads-stats.ducaoya.workers.dev/`。如果你 fork 后部署到自己的域名，全局搜这个字符串替换即可。
+> 另外页面底部（footer）的 GitHub 链接与 JSON-LD 里的 `codeRepository` / `license` 指向本仓库，fork 后也建议一并改成你自己的。
 >
 > 页面是 JS 渲染的，LLM 抓取器多数不执行 JS，因此**优先抓 `llms.txt`** 比抓页面更划算。
 
