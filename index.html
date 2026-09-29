@@ -218,7 +218,9 @@
         </ol>
         <dl class="faq">
           <dt>数据从哪来？</dt>
-          <dd>全部来自 npm 官方公开接口：<code>registry.npmjs.org</code>（包列表与元信息）与 <code>api.npmjs.org/downloads</code>（下载量）。由访客浏览器直接请求，本站无后端、无埋点、无第三方 CDN。</dd>
+          <dd>全部来自 npm 官方公开接口：<code>registry.npmjs.org</code>（包列表与元信息）与 <code>api.npmjs.org/downloads</code>（下载量）。由访客浏览器直接请求，本站无后端、无广告，ECharts 已本地内置。</dd>
+          <dt>本站有访问统计吗？</dt>
+          <dd>默认没有任何统计脚本。若站长在 <code>config.js</code> 里配置了 Cloudflare Web Analytics 的 token，则会加载 Cloudflare 官方探针统计访问量（PV/UV、来源、国家、Core Web Vitals）；该探针<strong>不使用 Cookie</strong>、不做跨站跟踪，且 Cloudflare 官方明确<strong>不记录 URL 查询参数</strong>——也就是说它看不到你查的是哪个 npm 用户。介意的话屏蔽 <code>static.cloudflareinsights.com</code> 即可，不影响本页任何功能。</dd>
           <dt>支持任意 npm 用户吗？</dt>
           <dd>支持。仓库里 <code>config.js</code> 的 <code>extraPackages</code> / <code>excludePackages</code> / <code>autoDiscover</code> 等个人化覆盖只对默认用户生效，其他人切换进来时一律按其真实包列表统计。</dd>
           <dt>为什么有的包显示「—」而不是 0？</dt>
@@ -260,5 +262,24 @@
   <script src="src/aggregate.js"></script>
   <script src="src/charts.js"></script>
   <script src="src/main.js"></script>
+
+  <!--
+    Cloudflare Web Analytics 探针（可选）。
+
+    只有 src/config.js 里的 webAnalyticsToken 非空时才会注入，默认不加载任何第三方脚本。
+    不加 spa:true —— 本站没有真正的路由跳转（只有换用户时的 replaceState，且 Cloudflare
+    明确不记录查询参数），开启 SPA 模式只会把同一个 / 重复计成多次 PV。
+  -->
+  <script>
+    (function () {
+      var token = window.APP_CONFIG && window.APP_CONFIG.webAnalyticsToken;
+      if (!token) return;
+      var beacon = document.createElement('script');
+      beacon.defer = true;
+      beacon.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+      beacon.setAttribute('data-cf-beacon', JSON.stringify({ token: token }));
+      document.body.appendChild(beacon);
+    })();
+  </script>
 </body>
 </html>

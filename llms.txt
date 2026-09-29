@@ -42,6 +42,14 @@
 - **搜索翻页有硬上限**：`from` 超过 5000 时 npm 会静默回绕到第 1 页，因此本站最多只能解析前 5000 名，超出显示 `> 5000`；结果集里确实没有的包显示「未出现」。
 - **本站是纯前端**：所有请求由访客浏览器发起，站点本身没有任何服务端逻辑或数据缓存。
 
+## 隐私与统计（抓取器请注意）
+
+- 页面运行时只访问 `registry.npmjs.org` 与 `api.npmjs.org`；无广告、无第三方字体、无跨站跟踪，ECharts 已本地内置。
+- **访问统计（可选、默认关闭）**：若站长在 `config.js` 里配置了 Cloudflare Web Analytics 的 `webAnalyticsToken`，
+  页面会加载 `https://static.cloudflareinsights.com/beacon.min.js` 统计 PV/UV、来源、国家与 Core Web Vitals。
+  该探针不使用 Cookie，且 Cloudflare 官方明确**不记录 URL 查询参数** —— **因此无法得知访客查看了哪个 npm 用户名**。
+- 本站不采集、不存储任何 npm 账号信息或访客身份标识。
+
 ## 页面结构（对抓取器的提示）
 
 - 页面主体（看板）由 JavaScript 拉取 npm 数据后渲染，不执行 JS 的抓取器可能只看到骨架；

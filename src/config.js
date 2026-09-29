@@ -76,6 +76,19 @@ window.APP_CONFIG = {
   /** 搜索排名缓存有效期（毫秒），默认 12 小时（排名变化慢，且翻页请求较重） */
   searchCacheTTL: 12 * 60 * 60 * 1000,
 
+  /**
+   * Cloudflare Web Analytics 站点 token（可选）。
+   *
+   * 留空（默认）= 不加载任何第三方脚本，页面完全自包含。
+   * 填上 token 后，页面底部会注入 Cloudflare 官方探针统计访问量。
+   *
+   * 获取：Cloudflare 控制台 → Web Analytics → Add a site →
+   *   hostname 填 `npm-downloads-stats.ducaoya.workers.dev` →
+   *   复制 JS 片段里 data-cf-beacon 的 "token" 值粘到这里。
+   * 详见 README「访问统计」一节。
+   */
+  webAnalyticsToken: '',
+
   /** 默认时间粒度：day | week | month | year */
   defaultGranularity: 'day',
 
