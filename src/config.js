@@ -24,8 +24,25 @@ window.APP_CONFIG = {
   /** 包列表 + 发布时间的缓存有效期（毫秒），默认 6 小时 */
   metaCacheTTL: 6 * 60 * 60 * 1000,
 
-  /** 下载量区间接口单次最多覆盖 18 个月，这里用 500 天分片规避静默截断 */
-  chunkDays: 500,
+  /**
+   * 下载量区间接口的分片天数。
+   *
+   * 取 365 是因为**批量**（多包）range 查询有硬上限：实测 `end - start` 超过 365 天会直接返回
+   * `400 {"error":"exceeded max days of 365 for bulk query"}`，而且错误响应不带 CORS 头，
+   * 浏览器里只能看到 “Failed to fetch”、拿不到状态码。
+   *
+   * 单包 range 的窗口更大（约 547 天，超过则静默丢弃最早的数据），所以 365 对两种情形都安全。
+   */
+  chunkDays: 365,
+
+  /**
+   * 单次批量下载量请求里最多放多少个包（npm 上限 128，这里留余量）。
+   * 包多的大用户（如上干个包）必须分批，否则 URL 过长被拒。
+   *
+   * 无需配置：scoped 包（@scope/name）会被自动拆成单包请求，因为 npm 的批量接口不支持它们
+   * （实测 `400 scoped packages are not currently supported in bulk lookups`）。
+   */
+  batchSize: 100,
 
   /** 并发请求上限，避免被限流 */
   maxConcurrent: 4,

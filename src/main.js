@@ -10,12 +10,66 @@
   var Charts = window.Charts;
 
   var PREFS_KEY = 'npmdl:prefs';
+  var USER_KEY = 'npmdl:user';
   var FALLBACK_START = '2015-01-01'; // npm 下载量数据起点
   var NOT_INDEXED_TIP =
     'npm 下载量服务尚未收录该包（新发布的包通常需要 24~48 小时），' +
     '这不等于「真的 0 下载」——包在 registry 上是正常的。';
 
+  /* ------------------------------------------------------------------ *
+   * 当前用户：?user= > localStorage > config.js 里的 username
+   * ------------------------------------------------------------------ */
+
+  /** npm 用户名：小写字母 / 数字 / - _ . ~（不含 scope，scope 不是账号） */
+  var USER_RE = /^[a-z0-9][a-z0-9._~-]{0,213}$/;
+
+  function sanitizeUser(raw) {
+    return String(raw == null ? '' : raw)
+      .trim()
+      .replace(/^@/, '')
+      .toLowerCase();
+  }
+
+  function isValidUser(name) {
+    return !!name && USER_RE.test(name) && name.charAt(0) !== '.' && name.charAt(0) !== '_';
+  }
+
+  function ownerUser() {
+    return sanitizeUser(CONFIG.username);
+  }
+
+  /** 手动补充/排除的包与显式搜索关键词只属于 config.js 里的默认用户 */
+  function isOwner() {
+    return state.user === ownerUser();
+  }
+
+  function urlUser() {
+    try {
+      var raw = new URLSearchParams(window.location.search || '').get('user');
+      return raw ? sanitizeUser(raw) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function storedUser() {
+    try {
+      return sanitizeUser(window.localStorage.getItem(USER_KEY));
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function resolveUser() {
+    var fromUrl = urlUser();
+    if (fromUrl) return fromUrl;
+    var fromStore = storedUser();
+    if (fromStore) return fromStore;
+    return ownerUser();
+  }
+
   var state = {
+    user: resolveUser(),
     packages: [],
     metas: {},
     daily: {},
@@ -35,7 +89,7 @@
     log: [],
     search: {
       status: 'idle', // idle | loading | ok | error
-      keywords: searchKeywords(),
+      keywords: [], // 由 load() 按当前用户计算
       results: [],
       progress: '',
       error: '',
@@ -44,7 +98,7 @@
   };
 
   var el = {};
-  ['userName', 'pkgCount', 'dataRange', 'updatedAt', 'banner', 'cards', 'trendChart', 'trendHint',
+  ['userForm', 'userInput', 'pkgCount', 'dataRange', 'updatedAt', 'banner', 'cards', 'trendChart', 'trendHint',
    'shareChart', 'shareHint', 'dowChart', 'chips', 'pkgTableBody', 'pkgTableFoot', 'tableHint',
    'searchTable', 'searchHead', 'searchBody', 'searchHint', 'searchNote',
    'loading', 'loadingText', 'btnRefresh', 'btnTheme', 'btnCopy', 'btnClearCache', 'btnToggleDebug',
@@ -62,13 +116,20 @@
       .replace(/'/g, '&#39;');
   }
 
-  /** 搜索关键词：未配置时退化为「自己所有包」 */
-  function searchKeywords() {
-    var list = (CONFIG.searchKeywords || []).filter(function (kw) {
-      return !!kw;
-    });
-    if (list.length) return list;
-    return CONFIG.username ? ['maintainer:' + CONFIG.username] : [];
+  /**
+   * 搜索关键词。
+   * 默认用户可沿用 config.js 里写死的关键词；其他用户一律用 maintainer:<user>，
+   * 否则会在别人的页面上显示只对作者有意义的搜索词。
+   */
+  function searchKeywords(user) {
+    var who = user || state.user || ownerUser();
+    if (who === ownerUser()) {
+      var list = (CONFIG.searchKeywords || []).filter(function (kw) {
+        return !!kw;
+      });
+      if (list.length) return list.slice();
+    }
+    return who ? ['maintainer:' + who] : [];
   }
 
   /* ------------------------------------------------------------------ *
@@ -162,15 +223,21 @@
       names.push(name);
     }
 
-    (CONFIG.autoDiscover === false ? [] : discovered).forEach(function (item) {
+    // extraPackages / excludePackages / autoDiscover 是「站点主人自己的口径」，
+    // 只对 config.js 里的默认用户生效；别人切换进来时一律按其真实包列表统计。
+    var owner = isOwner();
+    var auto = owner ? CONFIG.autoDiscover !== false : true;
+    (auto ? discovered : []).forEach(function (item) {
       push(item.name);
     });
-    (CONFIG.extraPackages || []).forEach(push);
+    if (owner) (CONFIG.extraPackages || []).forEach(push);
 
     var excluded = {};
-    (CONFIG.excludePackages || []).forEach(function (n) {
-      excluded[n] = true;
-    });
+    if (owner) {
+      (CONFIG.excludePackages || []).forEach(function (n) {
+        excluded[n] = true;
+      });
+    }
 
     names = names.filter(function (n) {
       return !excluded[n];
@@ -179,20 +246,47 @@
     return names;
   }
 
-  function load(force) {
+  /**
+   * 单次加载（失败直接向上抛，由 load() 决定「自动重试」还是「报错」）。
+   */
+  function loadOnce(force) {
     var started = Date.now();
     state.loaded = false;
-    state.search = { status: 'idle', keywords: searchKeywords(), results: [], progress: '', error: '', fetchedAt: 0 };
+    state.search = {
+      status: 'idle',
+      keywords: searchKeywords(state.user),
+      results: [],
+      progress: '',
+      error: '',
+      fetchedAt: 0,
+    };
     hideBanner();
-    showLoading('正在发现包…');
+
+    // ?user= 可能带来一个非法名字，先拦一道，给出可读提示（不抛错、不阻塞）
+    if (!isValidUser(state.user)) {
+      state.packages = [];
+      state.daily = {};
+      state.search.keywords = [];
+      hideLoading();
+      render();
+      userError(userFormatError(state.user));
+      return Promise.resolve();
+    }
+
+    showLoading('正在发现 @' + state.user + ' 的包…');
 
     return api
-      .discoverPackages(CONFIG.username, { force: force })
+      .discoverPackages(state.user, { force: force })
       .then(function (discovered) {
-        log('发现 ' + discovered.length + ' 个包（maintainer:' + CONFIG.username + '）');
+        log('发现 ' + discovered.length + ' 个包（maintainer:' + state.user + '）');
         state.packages = mergePackages(discovered);
         if (!state.packages.length) {
-          throw new Error('没有找到任何包，请检查 config.js 中的 username / extraPackages 配置');
+          var emptyErr = new Error(
+            'npm 用户 @' + state.user + ' 没有可统计的包：maintainer:' + state.user + ' 没有返回任何结果。' +
+            (isOwner() ? '若确实有包，可在 config.js 的 extraPackages 里手动补充。' : '')
+          );
+          emptyErr.hint = '请检查用户名拼写；也可以直接在顶部输入框里换一个用户名。';
+          throw emptyErr;
         }
         showLoading('正在读取包信息…（' + state.packages.length + ' 个）');
         return api.fetchPackagesMeta(state.packages, { force: force });
@@ -228,25 +322,91 @@
         log('拉取完成：' + state.minDay + ' ~ ' + state.maxDay + '，耗时 ' + (Date.now() - started) + 'ms' + (result.fromCache ? '（来自缓存）' : ''));
         hideLoading();
         render();
+        warnIfHugeUser();
       })
       .catch(function (err) {
         hideLoading();
         render();
-        var detail = err && err.message ? err.message : String(err);
-        if (err && err.pkg) detail += '（失败的包：' + err.pkg + '）';
-        var hintText =
-          err && err.status === 429
-            ? 'npm 下载量接口临时限流（HTTP 429）。已经拉到的分片已写入缓存，稍等 30~60 秒后点「重试」即可，只会重拉失败的部分。'
-            : '若为网络问题，请检查能否直接访问 registry.npmjs.org；也可先本地起服务：<code>python -m http.server</code>';
-        showBanner(
-          '<strong>数据加载失败：</strong>' + detail +
-          '<div class="banner-actions"><button type="button" class="btn btn-sm" id="bannerRetry">重试</button>' +
-          '<span class="hint">' + hintText + '</span></div>',
-          'error'
-        );
-        var retry = document.getElementById('bannerRetry');
-        if (retry) retry.addEventListener('click', function () { refresh(true); });
+        throw err; // 由 load() 决定自动重试还是报错
       });
+  }
+
+  function showLoadError(err) {
+    var detail = err && err.message ? err.message : String(err);
+    if (err && err.pkg) detail += '（失败的包：' + err.pkg + '）';
+    var hintText;
+    if (err && err.hint) {
+      hintText = err.hint;
+    } else if (err && (err.status === 429 || err.likelyRateLimited)) {
+      hintText =
+        '这是 npm 接口限流：限流响应不带 CORS 头，浏览器只能报 “Failed to fetch”，所以看起来不像 429。' +
+        '已拉到的分片都在本地缓存里，等 30~60 秒后点「重试」只会重拉失败的部分；包特别多的用户首次加载请求量大，更容易触发。';
+    } else if (err && err.status == null) {
+      hintText =
+        '若为网络问题，请检查能否直接访问 registry.npmjs.org；也可先本地起服务：<code>python -m http.server</code>';
+    } else {
+      hintText = 'npm 接口返回了错误响应，可稍后点「重试」。';
+    }
+    showBanner(
+      '<strong>数据加载失败：</strong>' + detail +
+      '<div class="banner-actions"><button type="button" class="btn btn-sm" id="bannerRetry">重试</button>' +
+      '<span class="hint">' + hintText + '</span></div>',
+      'error'
+    );
+    var retry = document.getElementById('bannerRetry');
+    if (retry) retry.addEventListener('click', function () { refresh(true); });
+  }
+
+  function sleepMs(ms) {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  /**
+   * 带「一次自动重试」的加载。
+   *
+   * 为什么要自动重试：npm 的限流响应不带 CORS 头，浏览器无法区分它和网络故障；
+   * 而每个时间分片（以及每个 scoped 包）都是独立缓存的，重试只会重拉失败的那部分，
+   * 所以「等两秒再来一次」几乎总能补齐，比丢个报错让用户自己点更强。
+   */
+  function load(force) {
+    var retried = false;
+
+    function attempt() {
+      return loadOnce(force).catch(function (err) {
+        var transient =
+          err && (err.likelyRateLimited || err.status === 429 || err.status == null || err.status >= 500);
+        if (transient && !retried) {
+          retried = true;
+          log('首次加载失败（' + (err.message || err) + '），2.5 秒后自动重试一次');
+          showLoading('部分请求被 npm 限流，正在自动重试…（已成功的分片不会重拉）');
+          return sleepMs(2500).then(attempt);
+        }
+        throw err;
+      });
+    }
+
+    return attempt().catch(showLoadError);
+  }
+  /** 包特别多的大用户：首次加载请求量大，提前说明可能被限流 */
+  var LARGE_USER_WARN = 300;
+
+  function warnIfHugeUser() {
+    if (state.packages.length <= LARGE_USER_WARN) return;
+    var jobs = api.buildSeriesJobs(
+      state.packages,
+      api.buildChunks(state.minDay, state.maxDay),
+      CONFIG.batchSize
+    );
+    showBanner(
+      '<strong>@' + esc(state.user) + ' 有 ' + state.packages.length + ' 个包</strong>，' +
+      '本次约需 ' + (jobs.length + state.packages.length) + ' 个请求，可能被 npm 限流。' +
+      '已经拉到的分片会缓存下来：若中途失败，等一会儿点「刷新」就能继续补齐（不会重头再拉）。<br />' +
+      '<span class="hint">提示：npm 的批量接口不支持 scoped 包，每个 <code>@scope/</code> 包都得单独请求，' +
+      '所以包多且以 scoped 为主时请求数会明显偏大。</span>',
+      'warn'
+    );
   }
 
   /* ------------------------------------------------------------------ *
@@ -254,7 +414,7 @@
    * ------------------------------------------------------------------ */
 
   function loadSearchRanks(force) {
-    var keywords = searchKeywords();
+    var keywords = searchKeywords(state.user);
     state.search.keywords = keywords;
     state.search.results = [];
     state.search.error = '';
@@ -314,6 +474,75 @@
     return load(force).then(function () {
       if (!state.loaded || !state.packages.length) return null;
       return loadSearchRanks(force);
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 切换用户
+   * ------------------------------------------------------------------ */
+
+  /** 把当前用户写回地址栏（file:// 下 replaceState 可能不可用，失败忽略） */
+  function syncUrl(user) {
+    try {
+      var url = new URL(window.location.href);
+      if (user === ownerUser()) url.searchParams.delete('user');
+      else url.searchParams.set('user', user);
+      window.history.replaceState(null, '', url.toString());
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function userError(html) {
+    el.userInput.classList.add('invalid');
+    showBanner(html, 'error');
+    setTimeout(hideBanner, 6000);
+  }
+
+  function userFormatError(name) {
+    return (
+      '<strong>用户名格式不合法：</strong><code>' + esc(name) + '</code>　' +
+      'npm 用户名只能包含小写字母、数字与 <code>-</code> <code>_</code> <code>.</code> <code>~</code>，' +
+      '且不能以 <code>.</code> 或 <code>_</code> 开头（<code>@scope/name</code> 是包名、不是账号）。'
+    );
+  }
+
+  /**
+   * 切换统计对象。
+   * @returns {false|Promise} 校验失败返回 false，否则返回重新加载的 Promise
+   */
+  function switchUser(raw) {
+    var name = sanitizeUser(raw);
+
+    if (!name) {
+      userError('请输入一个 npm 用户名，例如 <code>sindresorhus</code>。');
+      return false;
+    }
+    if (!isValidUser(name)) {
+      userError(userFormatError(name));
+      return false;
+    }
+    if (name === state.user) {
+      el.userInput.classList.remove('invalid');
+      showBanner('已经在查看 @' + esc(name) + ' 的数据了。', 'ok');
+      setTimeout(hideBanner, 2000);
+      return false;
+    }
+
+    state.user = name;
+    state.hidden = {}; // 换个人之后，旧的「排除包」列表没有意义
+    savePrefs();
+    try {
+      window.localStorage.setItem(USER_KEY, name);
+    } catch (e) {
+      /* ignore */
+    }
+    syncUrl(name);
+    renderHeader();
+    log('切换用户 → @' + name);
+
+    return refresh(true).then(function () {
+      if (state.loaded) log('已加载 @' + name + ' 的 ' + state.packages.length + ' 个包');
     });
   }
 
@@ -622,7 +851,9 @@
     if (!keywords.length) {
       el.searchHead.innerHTML = '';
       el.searchBody.innerHTML =
-        '<tr><td class="empty">未配置搜索关键词（config.js → searchKeywords）</td></tr>';
+        '<tr><td class="empty">' +
+        (state.loaded && state.packages.length ? '未配置搜索关键词（config.js → searchKeywords）' : '暂无数据') +
+        '</td></tr>';
       el.searchHint.textContent = '';
       el.searchNote.textContent = '';
       return;
@@ -821,13 +1052,18 @@
    * ------------------------------------------------------------------ */
 
   function renderHeader() {
-    el.userName.textContent = '@' + CONFIG.username;
+    el.userInput.value = state.user;
+    el.userInput.title = '当前用户 @' + state.user + '　·　输入别的 npm 用户名并回车（或点「切换」）即可查看他的包';
+    el.userInput.classList.toggle('invalid', !!state.user && !isValidUser(state.user));
+    el.userInput.setAttribute('aria-busy', state.loaded ? 'false' : 'true');
     el.pkgCount.textContent = state.packages.length + ' 个包';
     el.dataRange.textContent = state.minDay + ' ~ ' + state.maxDay;
     el.updatedAt.textContent = state.fetchedAt ? new Date(state.fetchedAt).toLocaleString('zh-CN') : '—';
 
     var s = buildWindows().sums;
-    document.title = 'npm 下载量统计 · ' + Agg.formatNumber(s.all.total) + ' 次 · @' + CONFIG.username;
+    document.title = state.loaded
+      ? 'npm 下载量统计 · @' + state.user + ' · ' + Agg.formatNumber(s.all.total) + ' 次下载'
+      : 'npm 下载量统计 · @' + state.user;
 
     el.chkTotal.checked = state.showTotal;
     setSegmentActive(el.segGranularity, state.granularity);
@@ -838,7 +1074,7 @@
   function renderDebug() {
     if (el.debugBox.classList.contains('hidden')) return;
     var lines = [];
-    lines.push('用户: ' + CONFIG.username);
+    lines.push('用户: @' + state.user + (isOwner() ? '（默认用户）' : '（由 ?user= 或本地记忆切换，默认用户为 @' + ownerUser() + '）'));
     lines.push('包 (' + state.packages.length + '): ' + state.packages.join(', '));
     lines.push('数据范围: ' + state.minDay + ' ~ ' + state.maxDay);
     lines.push('更新于: ' + new Date(state.fetchedAt).toLocaleString('zh-CN'));
@@ -893,6 +1129,12 @@
    * 主渲染
    * ------------------------------------------------------------------ */
 
+  /** 空表格里的提示文案 */
+  function emptyMessage() {
+    if (state.loaded && !state.packages.length) return '没有找到 @' + esc(state.user) + ' 的 npm 包';
+    return '暂无数据';
+  }
+
   function render() {
     applyTheme();
     renderHeader();
@@ -905,7 +1147,7 @@
       el.trendHint.textContent = '';
       el.shareHint.textContent = '';
       el.tableHint.textContent = '';
-      el.pkgTableBody.innerHTML = '<tr><td colspan="10" class="empty">暂无数据</td></tr>';
+      el.pkgTableBody.innerHTML = '<tr><td colspan="10" class="empty">' + emptyMessage() + '</td></tr>';
       el.pkgTableFoot.innerHTML = '';
       renderSearchPanel();
       renderDebug();
@@ -950,6 +1192,23 @@
    * ------------------------------------------------------------------ */
 
   function bindEvents() {
+    el.userForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      switchUser(el.userInput.value);
+    });
+
+    el.userInput.addEventListener('input', function () {
+      el.userInput.classList.remove('invalid');
+    });
+
+    el.userInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        el.userInput.value = state.user;
+        el.userInput.classList.remove('invalid');
+        el.userInput.blur();
+      }
+    });
+
     el.btnRefresh.addEventListener('click', function () {
       refresh(true);
     });

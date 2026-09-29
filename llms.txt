@@ -1,0 +1,61 @@
+# npm 下载量统计
+
+> 免费的纯静态看板：输入任意 npm 用户名，查看该用户全部 npm 包的下载量趋势（日 / 周 / 月 / 年）、各包占比、星期分布、可排序明细表，以及关键词搜索排名。数据全部来自 npm 官方公开接口，浏览器直连，无后端、无埋点。
+
+站点是单页应用，同一份页面通过 `?user=<npm 用户名>` 或页面左上角的输入框切换统计对象，因此**不需要为每个用户单独建页**。
+
+## 这个站点能回答什么
+
+- 某个 npm 用户名下**所有包**在某个时间段内的下载量合计（今日 / 昨日 / 近 7 天 / 近 30 天 / 本月 / 本年 / 累计）
+- 某个包在日、周、月、年四种粒度下的下载量趋势，以及各包之间的占比
+- 星期分布（哪个工作日下载更多）
+- 某个包在**指定关键词**下的 npm 搜索结果名次（例如 `maintainer:sindresorhus`）
+- 某个包是否「尚未被 npm 下载量服务收录」（显示 `—` 而不是 0）
+
+## 用法
+
+- 默认用户：<https://npm-downloads-stats.ducaoya.workers.dev/>
+- 指定用户：<https://npm-downloads-stats.ducaoya.workers.dev/?user=sindresorhus>
+- 也可以在页面顶部 `@` 输入框里改名字，回车即可；切换后地址栏会带上 `?user=`，该链接可直接分享
+
+## 数据来源（全部为 npm 公开接口，无第三方）
+
+| 用途 | 接口 |
+| --- | --- |
+| 发现某个用户的包 | `https://registry.npmjs.org/-/v1/search?text=maintainer:<user>&size=250&from=N` |
+| 包元信息（首次发布时间、最新版本） | `https://registry.npmjs.org/<pkg>` |
+| 下载量区间 | `https://api.npmjs.org/downloads/range/{start}:{end}/{pkg1,pkg2,...}` |
+| 单包交叉校验 | `https://api.npmjs.org/downloads/point/{start}:{end}/{pkg}` |
+| 搜索排名 | `https://registry.npmjs.org/-/v1/search?text=<关键词>&size=250&from=N` |
+
+## 已知限制（重要：请不要据此推断错误结论）
+
+- **区间静默截断（单包查询）**：单包 `range` / `point` 的窗口最多约 **547 天**，超过会**静默丢弃最早的数据**（不报错）。本站内部按 ≤ 365 天分片请求后合并。
+- **批量查询上限 365 天**：多包批量 `range` 查询的 `end - start` 一超过 365 天就返回 `400 {"error":"exceeded max days of 365 for bulk query"}`。
+- **批量查询不支持 scoped 包**：包名带 `@scope/` 时只能逐包请求（批量会 400 `scoped packages are not currently supported in bulk lookups`），因此包多且多为 scoped 的用户请求数量较大、更容易触发限流。
+- **错误响应不带 CORS 头**：400 / 429 等错误响应缺少 `Access-Control-Allow-Origin`，浏览器只能得到 `TypeError: Failed to fetch`，**拿不到状态码**。本站会把这类请求当作可重试的瞬时失败，并在限流时自动重试一次。
+- **请求较多时可能被限流**：一次性统计上千个包的用户需要上千个请求，可能撞上 npm 的限流（`429 error code: 1015`）。已成功的分片会缓存在浏览器里，稍后「刷新」可继续补齐，但**大用户建议耐心分次加载**。
+- **当日数据不完整**：npm 的下载量按 UTC 每天批处理一次，当天通常为 0 或偏小，次日才是最终值。
+- **新包 24~48 小时才被收录**：期间下载量接口返回 404 / null，页面显示「未收录 / —」。**这不等同于 0 下载**。
+- **搜索接口的 `downloads` 字段不可信**：实测与 `point` 接口同一周的数据不一致；本站的数字一律取自 `point` / `range`，不使用搜索接口的下载量字段。
+- **搜索排名不是下载量排名**：名次由 `score.final`（相关度 × 热度混合分）决定，同一个包换个关键词名次完全不同。
+- **搜索翻页有硬上限**：`from` 超过 5000 时 npm 会静默回绕到第 1 页，因此本站最多只能解析前 5000 名，超出显示 `> 5000`；结果集里确实没有的包显示「未出现」。
+- **本站是纯前端**：所有请求由访客浏览器发起，站点本身没有任何服务端逻辑或数据缓存。
+
+## 页面结构（对抓取器的提示）
+
+- 页面主体（看板）由 JavaScript 拉取 npm 数据后渲染，不执行 JS 的抓取器可能只看到骨架；
+  不依赖 JS 的说明性文字位于页面底部「这是什么 / 怎么用」区块（含数据来源与限制说明的 FAQ）。
+- `index.html` 内嵌了 `WebApplication` 的 JSON-LD 结构化描述。
+
+## 站点文件
+
+- [首页](https://npm-downloads-stats.ducaoya.workers.dev/)
+- [robots.txt](https://npm-downloads-stats.ducaoya.workers.dev/robots.txt)
+- [sitemap.xml](https://npm-downloads-stats.ducaoya.workers.dev/sitemap.xml)
+- [源码（GitHub）](https://github.com/ducaoya/npm-downloads-stats)
+- [LICENSE（MIT）](https://github.com/ducaoya/npm-downloads-stats/blob/main/LICENSE)
+
+## 可选
+
+- 本项目纯静态、零构建、无 npm 依赖，可自行 fork + 改 `src/config.js` 部署成自己的实例。

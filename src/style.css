@@ -674,11 +674,20 @@ a.link:hover {
   color: #15803d;
 }
 
+.banner-warn {
+  background: rgba(245, 165, 36, 0.12);
+  border-color: rgba(245, 165, 36, 0.42);
+  color: #92400e;
+}
+
 :root[data-theme='dark'] .banner-error {
   color: #fca5a5;
 }
 :root[data-theme='dark'] .banner-ok {
   color: #86efac;
+}
+:root[data-theme='dark'] .banner-warn {
+  color: #fcd34d;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -687,6 +696,9 @@ a.link:hover {
   }
   :root[data-theme='auto'] .banner-ok {
     color: #86efac;
+  }
+  :root[data-theme='auto'] .banner-warn {
+    color: #fcd34d;
   }
 }
 
@@ -844,4 +856,118 @@ a.link:hover {
   font-weight: 400;
   font-size: 10px;
   color: var(--text-mute);
+}
+
+/* ------------------------------ 用户名切换 ------------------------------- */
+
+.user-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  vertical-align: middle;
+}
+
+.user-switch .user-at {
+  color: var(--text-mute);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.user-switch input {
+  width: 11ch;
+  min-width: 90px;
+  padding: 2.5px 7px;
+  font: inherit;
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--text);
+  background: var(--seg-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.user-switch input::placeholder {
+  color: var(--text-mute);
+}
+
+.user-switch input:hover {
+  border-color: var(--accent);
+}
+
+.user-switch input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.user-switch input.invalid {
+  border-color: var(--down);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--down) 18%, transparent);
+}
+
+.user-switch input.busy {
+  opacity: 0.6;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --------------------------- 说明区（静态可抓取） -------------------------- */
+
+.about-body {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.85;
+}
+
+.about-body p {
+  margin: 0 0 10px;
+}
+
+.about-body strong {
+  color: var(--text);
+}
+
+.about-body code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.about-body ol {
+  margin: 0 0 14px;
+  padding-left: 22px;
+}
+
+.about-body ol li {
+  margin-bottom: 4px;
+}
+
+.faq {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--row-border);
+}
+
+.faq dt {
+  font-weight: 650;
+  color: var(--text);
+  margin-top: 10px;
+}
+
+.faq dd {
+  margin: 2px 0 0;
 }

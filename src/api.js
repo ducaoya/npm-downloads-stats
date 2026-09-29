@@ -5,7 +5,12 @@
  *  - 包元信息：https://registry.npmjs.org/<pkg>            （取 time.created 作为起始日）
  *  - 下载量：https://api.npmjs.org/downloads/range/<start>:<end>/<pkg,pkg>
  *
- * 注意：range 接口单次请求超过 18 个月会被「静默截断」，必须分片请求后合并。
+ * 两个必须知道的上限（均已实测）：
+ *   1. 批量（多包）range 查询：end - start 超过 365 天直接 400
+ *      "exceeded max days of 365 for bulk query"；
+ *   2. 单包 range 查询：窗口最多约 547 天，超过会静默丢弃最早的数据。
+ * 而且错误响应（400 等）**不带 CORS 头**，浏览器里只能看到 “Failed to fetch”，
+ * 读不到状态码 —— 所以请求层把「读不到状态」当作可重试，并在批量失败后退化为逐包请求。
  */
 (function (global) {
   'use strict';
@@ -124,11 +129,19 @@
           return res.json();
         })
         .catch(function (err) {
+          // 浏览器只能对「网络层失败」抛出 TypeError（读不到状态码与响应体）。
+          // 实测 npm 下载量接口被限流时返回的响应**不带 CORS 头**，
+          // 于是 429 在控制台里看起来也像 CORS / Failed to fetch。
+          // 这里标注一下，便于上层给出「限流而非网络故障」的提示。
+          if (err && err.status == null && err.name === 'TypeError') {
+            err.likelyRateLimited = true;
+            err.message = '请求被中断：浏览器读不到响应（常见原因是 npm 接口限流——限流响应不带 CORS 头）— ' + url;
+          }
           var retriable = err.status == null || err.status === 429 || err.status >= 500;
           if (attempt < maxAttempts && retriable) {
             var wait = 400 * Math.pow(2, attempt - 1);
-            // 限流（429）退避更久一些，并优先尊重服务端的 Retry-After
-            if (err.status === 429) wait = Math.max(wait, 1000 * attempt);
+            // 限流退避更久一些，并优先尊重服务端的 Retry-After
+            if (err.status === 429 || err.likelyRateLimited) wait = Math.max(wait, 1500 * attempt);
             if (err.retryAfter) wait = Math.max(wait, err.retryAfter * 1000);
             return sleep(wait).then(once);
           }
@@ -314,6 +327,55 @@
   }
 
   /**
+   * 把包列表切成若干批。
+   *
+   * npm 的批量下载量接口一次最多接受 128 个包名，而且包名是全拼在 URL 里的；
+   * 那种上千个包的用户如果不分批，请求会因 URL 过长直接被拒。
+   */
+  function splitPackages(packages, size) {
+    var n = size && size > 0 ? size : 100;
+    var out = [];
+    for (var i = 0; i < packages.length; i += n) {
+      out.push(packages.slice(i, i + n));
+    }
+    return out;
+  }
+
+  /**
+   * 构造「时间分片 × 包分组」的下载量作业列表。
+   *
+   * npm 的批量 range 接口有两条硬限制，均已实测，且报错时都是
+   * 400 + **不带 CORS 头**（浏览器只能看到 “Failed to fetch”，拿不到状态码）：
+   *
+   *   - 超过 365 天：`exceeded max days of 365 for bulk query`
+   *   - 包含 scoped 包：`scoped packages are not currently supported in bulk lookups`
+   *
+   * 所以 scoped 包（@scope/name）一律走单包请求 —— 单包接口既支持 scoped，
+   * 也允许更长的窗口。为了口径统一，这里仍然让它们复用同一套时间分片。
+   */
+  function buildSeriesJobs(packages, chunks, batchSize) {
+    var plain = [];
+    var scoped = [];
+    packages.forEach(function (name) {
+      if (name.charAt(0) === '@') scoped.push(name);
+      else plain.push(name);
+    });
+
+    var groups = splitPackages(plain, batchSize);
+    scoped.forEach(function (name) {
+      groups.push([name]);
+    });
+
+    var jobs = [];
+    chunks.forEach(function (chunk) {
+      groups.forEach(function (group) {
+        jobs.push({ chunk: chunk, packages: group });
+      });
+    });
+    return jobs;
+  }
+
+  /**
    * 请求一个分片（多包批量）。
    *
    * 返回 { data: { pkg: { 'YYYY-MM-DD': n } }, notIndexed: [pkg] }。
@@ -325,7 +387,7 @@
    */
   function fetchChunk(packages, chunk, options) {
     options = options || {};
-    var cacheKey = 'chunk:v2:' + hash(packages.join('|')) + ':' + chunk.start + ':' + chunk.end;
+    var cacheKey = 'chunk:v3:' + hash(packages.join('|')) + ':' + chunk.start + ':' + chunk.end;
     if (!options.force) {
       var cached = cacheGet(cacheKey, CONFIG.cacheTTL);
       if (cached) return Promise.resolve(cached);
@@ -436,7 +498,7 @@
       return Promise.resolve({ series: {}, notIndexed: [], start: startISO, end: endISO, fetchedAt: Date.now() });
     }
 
-    var cacheKey = 'series:v2:' + hash(packages.join('|')) + ':' + startISO + ':' + endISO;
+    var cacheKey = 'series:v3:' + hash(packages.join('|')) + ':' + startISO + ':' + endISO;
     if (!options.force) {
       var cached = cacheGet(cacheKey, CONFIG.cacheTTL);
       if (cached) {
@@ -446,10 +508,12 @@
     }
 
     var chunks = buildChunks(startISO, endISO);
+    var jobs = buildSeriesJobs(packages, chunks, CONFIG.batchSize);
 
-    return mapLimit(chunks, Math.min(CONFIG.maxConcurrent, 3), function (chunk) {
-      return fetchChunk(packages, chunk, options).then(function (part) {
-        return { chunk: chunk, part: part };
+    // 下载量请求最容易碰到限流，并发比其它接口更低（大用户的作业数可能上百个）
+    return mapLimit(jobs, Math.min(CONFIG.maxConcurrent, 2), function (job) {
+      return fetchChunk(job.packages, job.chunk, options).then(function (part) {
+        return { chunk: job.chunk, part: part };
       });
     }).then(function (parts) {
       var series = {};
@@ -723,6 +787,8 @@
     fetchPackagesMeta: fetchPackagesMeta,
     fetchDownloadSeries: fetchDownloadSeries,
     buildChunks: buildChunks,
+    splitPackages: splitPackages,
+    buildSeriesJobs: buildSeriesJobs,
     searchRank: searchRank,
     searchRanks: searchRanks,
     searchPageSize: searchPageSize,

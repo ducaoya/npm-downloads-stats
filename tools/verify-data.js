@@ -117,12 +117,18 @@ function daysInclusive(start, end) {
 
   console.log('\n=== 2. 分片与日期轴完整性 ===');
   const chunks = api.buildChunks(minDay, maxDay);
+  const BULK_MAX_DAYS = 365; // 批量 range 查询实测硬上限：end - start > 365 天直接 400
   console.log('  分片: ' + chunks.map((c) => c.start + '~' + c.end).join(' | '));
+  check(
+    'chunkDays 不超过批量接口的 365 天上限',
+    CONFIG.chunkDays <= BULK_MAX_DAYS,
+    'chunkDays=' + CONFIG.chunkDays
+  );
   let chunkOk = true;
   let prevEnd = null;
   chunks.forEach((c) => {
     const len = daysInclusive(c.start, c.end);
-    if (len > 548) chunkOk = false; // 18 个月上限
+    if (len - 1 > BULK_MAX_DAYS) chunkOk = false; // 批量查询的 end - start 上限
     if (prevEnd) {
       const expect = api.toISO(Agg.addDays(api.parseISO(prevEnd), 1));
       if (c.start !== expect) chunkOk = false;
@@ -130,8 +136,86 @@ function daysInclusive(start, end) {
     if (c.end !== c.start && api.parseISO(c.end) < api.parseISO(c.start)) chunkOk = false;
     prevEnd = c.end;
   });
-  check('分片无重叠、无空隙且单片 ≤ 548 天', chunkOk);
+  check('分片无重叠、无空隙且每片 end - start ≤ ' + BULK_MAX_DAYS + ' 天', chunkOk);
   check('分片覆盖到最新日期', chunks[chunks.length - 1].end === maxDay);
+
+  // 直接拿「批量」接口复测每个分片：这是真正会被 400 卡住的路径
+  // （错误响应不带 CORS 头 ⇒ 浏览器里表现为 Failed to fetch，看不到 400）
+  //
+  // 先探一下是否处于限流状态：npm 限流时也返回“无 CORS 头的错误响应”，
+  // 不先探就会把「环境被限流」误报成「数据/接口错」。
+  const throttleProbe = await api
+    .fetchJSON(API + '/downloads/range/' + chunks[0].start + ':' + chunks[0].end + '/' + encodeURIComponent(names[0]), {
+      retries: 1,
+    })
+    .then(() => null)
+    .catch((e) => e.status || 'no-status');
+  await sleep(200);
+
+  if (throttleProbe) {
+    skip('每个分片都能被「批量」下载量接口接受', '环境被限流（' + throttleProbe + '），无法验证');
+  } else {
+    let bulkOk = true;
+    let bulkDetail = '';
+    let bulkThrottled = false;
+    for (const c of chunks) {
+      const url =
+        API + '/downloads/range/' + c.start + ':' + c.end + '/' +
+        names.slice(0, Math.min(3, names.length)).map(encodeURIComponent).join(',');
+      try {
+        const j = await api.fetchJSON(url, { retries: 1 });
+        if (j && j.error) {
+          bulkOk = false;
+          bulkDetail = c.start + '~' + c.end + ': ' + j.error;
+        }
+      } catch (e) {
+        if (e.status === 429 || e.status == null) bulkThrottled = true;
+        bulkOk = false;
+        bulkDetail = c.start + '~' + c.end + ': ' + (e.status || 'no-status（可能是限流）');
+      }
+      await sleep(250);
+    }
+    if (bulkThrottled) {
+      skip('每个分片都能被「批量」下载量接口接受', '中途被限流：' + bulkDetail);
+    } else {
+      check('每个分片都能被「批量」下载量接口接受', bulkOk, bulkDetail || chunks.length + ' 片全部 200');
+    }
+  }
+
+  // 上千个包的用户必须分批，否则 URL 过长会被 npm 拒（而限流时的错误响应不带 CORS 头，
+  // 在浏览器里会表现成 “Failed to fetch”）
+  const manyPkgs = [];
+  for (let i = 0; i < 250; i++) manyPkgs.push('pkg-' + i);
+  const groups = api.splitPackages(manyPkgs, CONFIG.batchSize);
+  const flat = groups.reduce((a, g) => a.concat(g), []);
+  check(
+    '包分批：每批 ≤ batchSize，总数不丢不重',
+    groups.every((g) => g.length > 0 && g.length <= CONFIG.batchSize) &&
+      flat.length === manyPkgs.length &&
+      new Set(flat).size === manyPkgs.length &&
+      flat.join('|') === manyPkgs.join('|'),
+    groups.length + ' 批 × ≤' + CONFIG.batchSize
+  );
+
+  // scoped 包不能进批量请求（实测：400 "scoped packages are not currently supported in bulk lookups"）
+  const mixedPkgs = ['plain-a', '@scope/b', 'plain-c', '@scope/d', 'plain-e'];
+  const mixedJobs = api.buildSeriesJobs(mixedPkgs, [{ start: '2020-01-01', end: '2020-12-31' }], CONFIG.batchSize);
+  const bulkJobs = mixedJobs.filter((j) => j.packages.length > 1);
+  const singleJobs = mixedJobs.filter((j) => j.packages.length === 1);
+  check(
+    'scoped 包一律不进批量请求',
+    bulkJobs.length === 1 &&
+      bulkJobs[0].packages.join(',') === 'plain-a,plain-c,plain-e' &&
+      singleJobs.length === 2 &&
+      singleJobs.every((j) => j.packages[0].charAt(0) === '@'),
+    mixedJobs.map((j) => j.packages.join('+')).join(' , ')
+  );
+  const covered = mixedJobs.reduce((a, j) => a.concat(j.packages), []).sort();
+  check(
+    '分片作业覆盖全部包且不重叠',
+    covered.join('|') === mixedPkgs.slice().sort().join('|'),
+    covered.join(',')
+  );
 
   const dayKeys = Object.keys(daily).sort();
   check(

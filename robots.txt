@@ -1,0 +1,41 @@
+# npm 下载量统计 —— 纯静态看板，欢迎所有爬虫（含 AI / LLM 抓取器）
+# https://npm-downloads-stats.ducaoya.workers.dev/
+
+User-agent: *
+Allow: /
+
+# 显式声明允许 AI / LLM 抓取（与上面的 * 一致，只是把态度写明确）
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://npm-downloads-stats.ducaoya.workers.dev/sitemap.xml

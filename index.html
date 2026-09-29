@@ -3,10 +3,61 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>npm 下载量统计 · @ducaoya</title>
-  <meta name="description" content="纯静态的 npm 包下载量统计看板，数据来自 npm 官方公开接口。" />
+
+  <title>npm 下载量统计 · 输入任意 npm 用户名查看包下载量</title>
+  <meta name="description" content="免费的 npm 下载量统计看板：输入任意 npm 用户名，即可查看该用户全部 npm 包的日/周/月/年下载量趋势、各包占比、星期分布与搜索排名。纯静态、无后端、无埋点，数据全部来自 npm 官方公开接口。" />
+  <meta name="keywords" content="npm 下载量,npm 下载量统计,npm downloads,npm 包统计,npm 搜索排名,npm 用户名查询,npm package downloads stats,npm maintainer" />
+  <meta name="author" content="ducaoya" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+  <link rel="canonical" href="https://npm-downloads-stats.ducaoya.workers.dev/" />
+  <meta name="theme-color" content="#f4f6fb" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#080c17" media="(prefers-color-scheme: dark)" />
+
+  <!-- 社交卡片（无图片，故用 summary 而非 summary_large_image） -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="npm 下载量统计" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:title" content="npm 下载量统计 · 输入任意 npm 用户名查看包下载量" />
+  <meta property="og:description" content="输入任意 npm 用户名，查看该用户全部包的下载量趋势、占比与搜索排名。纯静态、无后端，数据来自 npm 官方公开接口。" />
+  <meta property="og:url" content="https://npm-downloads-stats.ducaoya.workers.dev/" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="npm 下载量统计 · 输入任意 npm 用户名" />
+  <meta name="twitter:description" content="输入任意 npm 用户名，查看该用户全部包的下载量趋势、占比与搜索排名。数据来自 npm 官方公开接口。" />
+
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234f7cff'/%3E%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='white'%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="src/style.css" />
+
+  <!-- 给搜索引擎 / AI 抓取器看的结构化描述 -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "npm 下载量统计",
+    "alternateName": "npm downloads stats",
+    "url": "https://npm-downloads-stats.ducaoya.workers.dev/",
+    "description": "输入任意 npm 用户名，查看该用户全部 npm 包的日/周/月/年下载量趋势、各包占比、星期分布与搜索排名。纯静态页面，数据全部来自 npm 官方公开接口。",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Any (modern browser)",
+    "browserRequirements": "需要支持 fetch 与 localStorage 的现代浏览器",
+    "inLanguage": "zh-CN",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" },
+    "featureList": [
+      "按 npm 用户名统计其全部包的下载量",
+      "日 / 周 / 月 / 年四种时间粒度与 7 天 / 30 天 / 90 天 / 1 年 / 今年 / 全部区间预设",
+      "堆叠柱 / 堆叠面积 / 折线趋势图、各包占比环形图、星期分布图、可排序明细表",
+      "读取 npm 搜索结果名次（超出接口窗口时如实标注，不伪造名次）"
+    ],
+    "isBasedOn": [
+      "https://registry.npmjs.org/",
+      "https://api.npmjs.org/downloads/"
+    ],
+    "codeRepository": "https://github.com/ducaoya/npm-downloads-stats",
+    "license": "https://github.com/ducaoya/npm-downloads-stats/blob/main/LICENSE",
+    "author": { "@type": "Person", "name": "ducaoya", "url": "https://www.npmjs.com/~ducaoya" },
+    "maintainer": { "@type": "Person", "name": "ducaoya", "url": "https://www.npmjs.com/~ducaoya" }
+  }
+  </script>
 </head>
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
@@ -17,12 +68,19 @@
         <div class="logo">📦</div>
         <div class="brand-text">
           <h1>npm 下载量统计</h1>
-          <p class="sub">
-            <span class="mono" id="userName">@ducaoya</span>
+          <div class="sub">
+            <form class="user-switch" id="userForm" autocomplete="off"
+                  title="输入任意 npm 用户名即可查看他的包；切换后地址栏会带上 ?user=，可直接把链接发给别人">
+              <span class="user-at" aria-hidden="true">@</span>
+              <label class="sr-only" for="userInput">npm 用户名</label>
+              <input id="userInput" name="user" type="text" spellcheck="false" autocapitalize="off"
+                     autocomplete="off" placeholder="npm 用户名" size="12" maxlength="214" />
+              <button type="submit" class="btn btn-sm" id="btnSwitchUser">切换</button>
+            </form>
             <span class="dot-sep">·</span><span id="pkgCount">—</span>
             <span class="dot-sep">·</span>数据截至 <span id="dataRange">—</span>
             <span class="dot-sep">·</span>更新于 <span id="updatedAt">—</span>
-          </p>
+          </div>
         </div>
       </div>
       <div class="actions">
@@ -32,6 +90,12 @@
     </header>
 
     <div class="banner hidden" id="banner" role="alert"></div>
+
+    <noscript>
+      <div class="banner banner-ok">
+        看板需要 JavaScript 才能向 npm 公开接口拉取数据；下方「这是什么 / 怎么用」为不依赖脚本的说明。
+      </div>
+    </noscript>
 
     <section class="cards" id="cards" aria-label="汇总指标"></section>
 
@@ -134,6 +198,36 @@
           <tbody id="pkgTableBody"></tbody>
           <tfoot id="pkgTableFoot"></tfoot>
         </table>
+      </div>
+    </section>
+
+    <section class="panel about" id="about">
+      <div class="panel-head">
+        <div class="panel-title"><h2>这是什么 / 怎么用</h2></div>
+      </div>
+      <div class="about-body">
+        <p>
+          <strong>npm 下载量统计</strong>是一个免费的在线看板：在页面左上角输入任意 <strong>npm 用户名</strong>，
+          即可查看该用户<strong>全部 npm 包</strong>的下载量——日 / 周 / 月 / 年四种粒度的趋势图、各包占比、星期分布、
+          可排序明细表，以及关键词的搜索排名。用法：
+        </p>
+        <ol>
+          <li>在顶部 <code>@</code> 输入框里填 npm 用户名，点「切换」或直接回车；</li>
+          <li>地址栏会出现 <code>?user=&lt;用户名&gt;</code>，这个链接可以直接分享给别人，对方打开就是你刚看的看板；</li>
+          <li>不填用户名时默认统计 <code>config.js</code> 里配置的用户。</li>
+        </ol>
+        <dl class="faq">
+          <dt>数据从哪来？</dt>
+          <dd>全部来自 npm 官方公开接口：<code>registry.npmjs.org</code>（包列表与元信息）与 <code>api.npmjs.org/downloads</code>（下载量）。由访客浏览器直接请求，本站无后端、无埋点、无第三方 CDN。</dd>
+          <dt>支持任意 npm 用户吗？</dt>
+          <dd>支持。仓库里 <code>config.js</code> 的 <code>extraPackages</code> / <code>excludePackages</code> / <code>autoDiscover</code> 等个人化覆盖只对默认用户生效，其他人切换进来时一律按其真实包列表统计。</dd>
+          <dt>为什么有的包显示「—」而不是 0？</dt>
+          <dd>该包尚未被 npm 下载量服务收录（新包一般需要 24~48 小时），它与「已收录但下载量为 0」是两回事，所以不显示 0，以免误导。</dd>
+          <dt>为什么今天的数字偏小？</dt>
+          <dd>npm 的下载量按 UTC 每天批处理一次，当天数据通常次日才完整。</dd>
+          <dt>「搜索排名」是下载量排名吗？</dt>
+          <dd>不是。它是 npm 搜索结果里的顺序（按 <code>score.final</code>，即相关度 × 热度），换个关键词名次就不同；npm 接口只允许翻页到前 5000 名，超出会显示 <code>&gt; 5000</code>，结果集里没有的包显示「未出现」。</dd>
+        </dl>
       </div>
     </section>
 
