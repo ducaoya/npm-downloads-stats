@@ -79,15 +79,18 @@ window.APP_CONFIG = {
   /**
    * Cloudflare Web Analytics 站点 token（可选）。
    *
-   * 留空（默认）= 不加载任何第三方脚本，页面完全自包含。
-   * 填上 token 后，页面底部会注入 Cloudflare 官方探针统计访问量。
+   * 留空 = 不加载任何第三方脚本，页面完全自包含（fork 后的默认值）。
+   * 当前仓库里已填入线上站点的 token，因此线上会加载 Cloudflare 官方探针。
    *
    * 获取：Cloudflare 控制台 → Web Analytics → Add a site →
    *   hostname 填 `npm-downloads-stats.ducaoya.workers.dev` →
    *   复制 JS 片段里 data-cf-beacon 的 "token" 值粘到这里。
    * 详见 README「访问统计」一节。
+   *
+   * 注意：这个 token 不是密钥 —— 任何使用 Web Analytics 的站点，
+   * 它都明文出现在页面源码里。
    */
-  webAnalyticsToken: '',
+  webAnalyticsToken: '84a7cfe8f2544c2f8f8aef94ffc73d35',
 
   /** 默认时间粒度：day | week | month | year */
   defaultGranularity: 'day',

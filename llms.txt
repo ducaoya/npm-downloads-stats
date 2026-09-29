@@ -45,9 +45,10 @@
 ## 隐私与统计（抓取器请注意）
 
 - 页面运行时只访问 `registry.npmjs.org` 与 `api.npmjs.org`；无广告、无第三方字体、无跨站跟踪，ECharts 已本地内置。
-- **访问统计（可选、默认关闭）**：若站长在 `config.js` 里配置了 Cloudflare Web Analytics 的 `webAnalyticsToken`，
-  页面会加载 `https://static.cloudflareinsights.com/beacon.min.js` 统计 PV/UV、来源、国家与 Core Web Vitals。
-  该探针不使用 Cookie，且 Cloudflare 官方明确**不记录 URL 查询参数** —— **因此无法得知访客查看了哪个 npm 用户名**。
+- **访问统计（已启用）**：本站加载 Cloudflare 官方探针
+  `https://static.cloudflareinsights.com/beacon.min.js`（token 配置在 `config.js` 的 `webAnalyticsToken`），
+  用于统计 PV/UV、来源、国家与 Core Web Vitals。该探针不使用 Cookie，
+  且 Cloudflare 官方明确**不记录 URL 查询参数** —— **因此无法得知访客查看了哪个 npm 用户名**。
 - 本站不采集、不存储任何 npm 账号信息或访客身份标识。
 
 ## 页面结构（对抓取器的提示）

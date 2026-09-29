@@ -193,25 +193,26 @@ Pages 同样可用（功能已冻结但未废弃）。在 **Workers & Pages → 
 ## 隐私说明
 
 - 页面运行时**只**访问 `registry.npmjs.org` 与 `api.npmjs.org` 两个公开接口；无第三方 CDN、字体、广告，ECharts 已本地内置。
-- **访问统计（可选、默认关闭）**：在 `src/config.js` 里填上 `webAnalyticsToken` 后，页面底部会注入 Cloudflare 官方探针
-  `static.cloudflareinsights.com/beacon.min.js`，统计 PV/UV、来源、国家与 Core Web Vitals。该探针**不使用 Cookie**、
-  不做跨站跟踪，且 Cloudflare 官方明确**不记录 URL 查询参数** —— 所以它看不到访问者查看了哪个 npm 用户。
-  不想要就屏蔽该域名，或直接不配 token，页面功能完全不受影响。
+- **访问统计（本仓库已启用，fork 后默认关闭）**：`src/config.js` 的 `webAnalyticsToken` 已填上线上站点的 token，
+  因此页面底部会注入 Cloudflare 官方探针 `static.cloudflareinsights.com/beacon.min.js`，
+  统计 PV/UV、来源、国家与 Core Web Vitals。该探针**不使用 Cookie**、不做跨站跟踪，
+  且 Cloudflare 官方明确**不记录 URL 查询参数** —— 所以它看不到访问者查看了哪个 npm 用户。
+  把 token 置空则完全不加载任何第三方脚本（fork 后的默认值就是这样）。
 - **不设置任何 Cookie**，不采集访客信息；仅在浏览器 localStorage 写入缓存与界面偏好（`npmdl:cache:*`、`npmdl:prefs`）以及你切换过的用户名（`npmdl:user`）。
 - 切换用户时用户名会写进地址栏（`?user=`），这是为了方便你把链接分享给别人；它只存在你的浏览器里，不会发送到本站以外的任何地方（请求 npm 接口时才会用到它）。
 - 仓库内唯一身份信息是 npm 用户名 `ducaoya`（本就是 npmjs.com 上的公开信息）。代码不读取、不存储 npm 接口返回的维护者邮箱字段。
 - 部署后，访客浏览器会直接向 npm 官方域名发起请求（npm 可见访客 IP），这与直接访问 npmjs.com 无异。
 - 「诊断信息」面板展示的包名/版本/发布日期均为 npm 上的公开数据。
 
-## 访问统计（可选）
+## 访问统计（已启用）
 
-站点默认**不加载任何第三方脚本**。想要访问量数据，用 Cloudflare 自带的免费 Web Analytics：
+站点用 Cloudflare 自带的免费 Web Analytics 看访问量（`workers.dev` 无法自动注入，故采用手动探针）：
 
-1. 控制台 → **Web Analytics** → **Add a site** → hostname 填 `npm-downloads-stats.ducaoya.workers.dev` → **Done**；
-2. 在 **Manage site** 里复制 JS 片段中 `data-cf-beacon` 的 `token` 值；
-3. 粘到 `src/config.js` 的 `webAnalyticsToken`，重新部署即可（`index.html` 末尾的注入器只在 token 非空时才加载探针）。
+1. 控制台 → **Web Analytics** → **Add a site** → hostname 填 `npm-downloads-stats.ducaoya.workers.dev`；
+2. 从 JS 片段里取 `data-cf-beacon` 的 `token`，填到 `src/config.js` 的 `webAnalyticsToken`；
+3. `index.html` 末尾的注入器只在 token 非空时才加载官方探针（原样使用官网片段，不加 `spa:true`）。
 
-能得到：PV / 独立访客 / Top pages / 来源 / 国家 / 设备 / Core Web Vitals。
+能看到：PV / 独立访客 / Top pages / 来源 / 国家 / 设备 / Core Web Vitals。
 
 三个必须知道的边界：
 
