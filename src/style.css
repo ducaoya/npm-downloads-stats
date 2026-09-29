@@ -823,24 +823,6 @@ a.link:hover {
   color: var(--accent);
 }
 
-.rank-delta {
-  margin-left: 5px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.rank-delta.up {
-  color: var(--up);
-}
-
-.rank-delta.down {
-  color: var(--down);
-}
-
-.rank-delta.flat {
-  color: var(--text-mute);
-}
-
 .rank-none,
 .rank-unknown {
   color: var(--text-mute);

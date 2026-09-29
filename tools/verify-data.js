@@ -242,61 +242,7 @@ function daysInclusive(start, end) {
       '（口径略有差异属正常：npm 的 weekly 统计到前一日）'
   );
 
-  console.log('\n=== 5. 排名口径自洽性（本地计算）===');
-
-  const rankSample = Agg.rankByValue({ a: 5, b: 5, c: 3, d: 0, e: 1 }, ['a', 'b', 'c', 'd', 'e']);
-  check(
-    '并列同名次 + 0 值不上榜',
-    JSON.stringify(rankSample.map((r) => r.rank)) === JSON.stringify([1, 1, 3, 4, null]),
-    rankSample.map((r) => r.name + '=' + r.value + (r.rank == null ? '(null)' : '#' + r.rank)).join(' ')
-  );
-
-  const positive = rankSample.filter((r) => r.value > 0);
-  check(
-    '名次为「竞争排名」：有名次的项数 = 正值项数，且名次不越过名次序号',
-    rankSample.filter((r) => r.rank != null).length === positive.length &&
-      positive.every((r, i) => r.rank >= 1 && r.rank <= i + 1) &&
-      positive.every((r, i) => i === 0 || r.rank >= positive[i - 1].rank)
-  );
-  check(
-    '「有下载量 ⇔ 有名次」严格等价',
-    rankSample.every((r) => (r.rank != null) === (r.value > 0)) &&
-      rankSample.every((r, i) => i === 0 || r.value <= rankSample[i - 1].value)
-  );
-
-  const wAll = Agg.sumWindow(daily, names, minDay, maxDay);
-  const rankedAll = Agg.rankByValue(wAll.byPackage, names);
-  const maxPkg = names.reduce((best, n) => (wAll.byPackage[n] > wAll.byPackage[best] ? n : best), names[0]);
-  check(
-    '累计排名第 1 名 == 累计下载量最高的包',
-    rankedAll[0].value === wAll.byPackage[maxPkg],
-    rankedAll[0].name + ' ' + Agg.formatNumber(rankedAll[0].value)
-  );
-  check(
-    '排名合计 = 区间合计（未重复计入也未遗漏）',
-    rankedAll.reduce((a, r) => a + r.value, 0) === wAll.total
-  );
-
-  const rsAll = Agg.rankSeries(daily, names, 'month', minDay, maxDay);
-  let rsOk = rsAll.rows.length === rsAll.buckets.length;
-  names.forEach((n) => {
-    if ((rsAll.series[n] || []).length !== rsAll.buckets.length) rsOk = false;
-  });
-  rsAll.rows.forEach((row) => {
-    row.rows.forEach((r) => {
-      if ((r.rank != null) !== (r.value > 0)) rsOk = false;
-    });
-  });
-  check('名次走势：每个包在每个桶都有槽位，且「有值 ⇔ 有名次」', rsOk, rsAll.rows.length + ' 个桶');
-
-  const rsDay = Agg.rankSeries(daily, names, 'day', minDay, maxDay);
-  check(
-    '名次走势（日粒度）桶数 = 天数，且合计与 aggregate 一致',
-    rsDay.rows.length === daysInclusive(minDay, maxDay) &&
-      rsDay.rows.reduce((a, r) => a + r.total, 0) === allTotal
-  );
-
-  console.log('\n=== 6. 搜索排名（真实接口）===');
+  console.log('\n=== 5. 搜索排名（真实接口）===');
 
   const s1 = await api.searchRank('maintainer:' + CONFIG.username, names, { force: true });
   check(
@@ -337,7 +283,7 @@ function daysInclusive(start, end) {
   const s4 = await api.searchRank('maintainer:' + CONFIG.username, names);
   check('二次调用命中搜索排名缓存（不再发请求）', s4.fromCache === true && s4.matched.length === names.length);
 
-  console.log('\n=== 7. 数据概览 ===');
+  console.log('\n=== 6. 数据概览 ===');
   console.log('  区间: ' + minDay + ' ~ ' + maxDay + '（' + daysInclusive(minDay, maxDay) + ' 天）');
   console.log('  累计下载: ' + Agg.formatNumber(allTotal));
   names.forEach((n) => {

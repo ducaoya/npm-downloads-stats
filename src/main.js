@@ -46,7 +46,7 @@
   var el = {};
   ['userName', 'pkgCount', 'dataRange', 'updatedAt', 'banner', 'cards', 'trendChart', 'trendHint',
    'shareChart', 'shareHint', 'dowChart', 'chips', 'pkgTableBody', 'pkgTableFoot', 'tableHint',
-   'rankChart', 'rankHint', 'searchTable', 'searchHead', 'searchBody', 'searchHint', 'searchNote',
+   'searchTable', 'searchHead', 'searchBody', 'searchHint', 'searchNote',
    'loading', 'loadingText', 'btnRefresh', 'btnTheme', 'btnCopy', 'btnClearCache', 'btnToggleDebug',
    'debugBox', 'chkTotal', 'segGranularity', 'segRange', 'segType'].forEach(function (id) {
     el[id] = document.getElementById(id);
@@ -350,8 +350,7 @@
   }
 
   /**
-   * 基于「当前选中区间」构造上下文，并额外算出上一等长周期（用于名次变化）。
-   * render() 与表头排序都走这里，保证口径一致。
+   * 基于「当前选中区间」构造上下文。render() 与表头排序都走这里，保证口径一致。
    */
   function withCurrentWindow() {
     var ctx = buildWindows();
@@ -360,12 +359,6 @@
     ctx.sums.cur = Agg.sumWindow(state.daily, state.packages, cur.start, cur.end);
     ctx.sums.cur.start = cur.start;
     ctx.sums.cur.end = cur.end;
-
-    var prevWin = previousPeriod(cur.start, cur.end);
-    ctx.sums.curPrev = prevWin.available
-      ? Agg.sumWindow(state.daily, state.packages, prevWin.start, prevWin.end)
-      : null;
-    ctx.sums.curPrevWindow = prevWin.available ? prevWin : null;
     return ctx;
   }
 
@@ -570,77 +563,6 @@
   }
 
   /* ------------------------------------------------------------------ *
-   * 渲染：包排名走势（项目内部排名 —— 名次 1 = 该周期下载量最高）
-   * ------------------------------------------------------------------ */
-
-  function unitLabel() {
-    return { day: '日', week: '周', month: '月', year: '年' }[state.granularity] || '日';
-  }
-
-  function clearRankPanel() {
-    Charts.renderRank(el.rankChart, { buckets: [], packages: [], rows: [], series: {} });
-    el.rankHint.textContent = '';
-  }
-
-  function renderRankPanel(ctx) {
-    // 注意：名次一律在「全部配置的包」中计算，chips 只决定图上画哪几条线。
-    // 否则点掉一个包标签就会让其它包集体上移一名，名次随显示开关变动，容易误导。
-    var all = state.packages;
-    var packages = visiblePackages();
-    if (!packages.length) {
-      clearRankPanel();
-      el.rankHint.textContent = '未选择任何包，请点击上方标签启用';
-      return;
-    }
-
-    var w = clampWindow(ctx.window);
-    var data = Agg.rankSeries(state.daily, all, state.granularity, w.start, w.end);
-    var latest = data.rows[data.rows.length - 1] || null;
-    var prev = data.rows[data.rows.length - 2] || null;
-
-    var hint =
-      w.start + ' ~ ' + w.end + ' · 按' + unitLabel() + '聚合 ' + data.buckets.length +
-      ' 个点 · 名次在全部 ' + all.length + ' 个包中计算' +
-      (all.length > packages.length ? '（图上只画已选的 ' + packages.length + ' 个）' : '');
-
-    if (latest) {
-      var top = null;
-      latest.rows.some(function (r) {
-        if (r.rank != null) {
-          top = r;
-          return true;
-        }
-        return false;
-      });
-      if (top) {
-        hint += ' · 最近一期第 1 名：' + top.name;
-        if (prev) {
-          var before = null;
-          prev.rows.some(function (r) {
-            if (r.name === top.name) {
-              before = r.rank;
-              return true;
-            }
-            return false;
-          });
-          if (before != null && before !== top.rank) {
-            hint += '（' + (top.rank < before ? '↑ 上升 ' + (before - top.rank) : '↓ 下降 ' + (top.rank - before)) + ' 名）';
-          }
-        }
-      }
-    }
-
-    el.rankHint.textContent = hint;
-    Charts.renderRank(el.rankChart, {
-      buckets: data.buckets,
-      packages: packages,
-      colors: packages.map(colorFor),
-      series: data.series,
-      rows: data.rows,
-    });
-  }
-
-  /* ------------------------------------------------------------------ *
    * 渲染：搜索排名（npm 搜索接口的返回顺序）
    * ------------------------------------------------------------------ */
 
@@ -797,56 +719,15 @@
     );
   }
 
-  /** 「排名」列：名次 + 与上一等长周期的变化 */
-  function rankCellHtml(row) {
-    if (row.rank == null) {
-      return '<td class="num rank-cell" title="该区间内没有下载量，不参与排名">' +
-        '<span class="rank-none">—</span></td>';
-    }
-    var delta = '';
-    if (row.rankDelta != null && row.rankDelta !== 0) {
-      var up = row.rankDelta > 0;
-      delta =
-        '<span class="rank-delta ' + (up ? 'up' : 'down') + '" title="较上一等长周期 ' +
-        (up ? '上升 ' : '下降 ') + Math.abs(row.rankDelta) + ' 名">' +
-        (up ? '↑' : '↓') + Math.abs(row.rankDelta) + '</span>';
-    } else if (row.rankDelta === 0) {
-      delta = '<span class="rank-delta flat" title="较上一等长周期持平">→</span>';
-    }
-    return (
-      '<td class="num rank-cell">' +
-      '<span class="rank-num' + (row.rank === 1 ? ' rank-top' : '') + '">' + row.rank + '</span>' +
-      delta +
-      '</td>'
-    );
-  }
-
   function renderTable(ctx) {
     var s = ctx.sums;
 
-    // 当前区间的项目内名次，以及与上一等长周期的对比
-    var curRank = {};
-    Agg.rankByValue(s.cur.byPackage, state.packages).forEach(function (r) {
-      curRank[r.name] = r.rank;
-    });
-    var prevRank = {};
-    if (s.curPrev) {
-      Agg.rankByValue(s.curPrev.byPackage, state.packages).forEach(function (r) {
-        prevRank[r.name] = r.rank;
-      });
-    }
-
     var rows = state.packages.map(function (name) {
       var meta = state.metas[name] || {};
-      var rank = curRank[name] == null ? null : curRank[name];
-      var rankPrev = prevRank[name] == null ? null : prevRank[name];
       return {
         name: name,
         version: meta.latestVersion || '',
         window: s.cur.byPackage[name] || 0,
-        rank: rank,
-        rankPrev: rankPrev,
-        rankDelta: rank != null && rankPrev != null ? rankPrev - rank : null,
         today: s.today.byPackage[name] || 0,
         yesterday: s.yesterday.byPackage[name] || 0,
         week: s.d7.byPackage[name] || 0,
@@ -860,12 +741,6 @@
     var key = state.sortKey;
     var dir = state.sortDir === 'asc' ? 1 : -1;
     rows.sort(function (a, b) {
-      if (key === 'rank') {
-        // 未上榜（null）无论升降序都排在最末
-        var an = a.rank == null;
-        var bn = b.rank == null;
-        if (an !== bn) return an ? 1 : -1;
-      }
       var av = a[key];
       var bv = b[key];
       if (typeof av === 'string') return av.localeCompare(bv) * dir;
@@ -888,7 +763,6 @@
           badge +
           '</td>' +
           numCell(r.window, 'strong', nIdx) +
-          rankCellHtml(r) +
           '<td class="num' + (nIdx ? ' not-indexed' : '') + '"' + (nIdx ? ' title="' + NOT_INDEXED_TIP + '"' : '') + '>' +
           (nIdx || !r.share ? '—' : r.share.toFixed(1) + '%') +
           '</td>' +
@@ -919,7 +793,6 @@
       '<tr>' +
       '<td>' + totalLabel + '</td>' +
       '<td class="num strong">' + Agg.formatNumber(totals.window) + '</td>' +
-      '<td class="num" title="名次由区间内下载量决定，不汇总">—</td>' +
       '<td class="num">100%</td>' +
       '<td class="num">' + Agg.formatNumber(totals.today) + '</td>' +
       '<td class="num">' + Agg.formatNumber(totals.yesterday) + '</td>' +
@@ -932,8 +805,6 @@
 
     el.tableHint.textContent =
       '「区间内」= 当前所选区间（' + s.cur.start + ' ~ ' + s.cur.end + '），点击表头可排序' +
-      '　·　「排名」= 该区间内按下载量在本人包中的名次' +
-      (s.curPrevWindow ? '（对比 ' + s.curPrevWindow.start + ' ~ ' + s.curPrevWindow.end + '）' : '') +
       (nIdxNames.length
         ? '　·　' + nIdxNames.join('、') + '：npm 下载量服务尚未收录，显示「—」而非 0（新包一般需 24~48 小时）'
         : '');
@@ -982,19 +853,6 @@
         '  versions=' + (m.versionCount == null ? '?' : m.versionCount)
       );
     });
-    lines.push('');
-    lines.push('—— 当前区间排名（项目内）——');
-    if (state.loaded) {
-      var cw = clampWindow(currentWindow());
-      var ranked = Agg.rankByValue(
-        Agg.sumWindow(state.daily, state.packages, cw.start, cw.end).byPackage,
-        state.packages
-      );
-      ranked.forEach(function (r) {
-        lines.push('  ' + (r.rank == null ? '  -' : String(r.rank).padStart(3)) + '  ' + r.name +
-          '  ' + Agg.formatNumber(r.value));
-      });
-    }
     lines.push('');
     lines.push('—— 搜索排名 ——');
     lines.push('关键词 (' + state.search.keywords.length + '): ' + (state.search.keywords.join(' | ') || '(无)'));
@@ -1047,9 +905,8 @@
       el.trendHint.textContent = '';
       el.shareHint.textContent = '';
       el.tableHint.textContent = '';
-      el.pkgTableBody.innerHTML = '<tr><td colspan="11" class="empty">暂无数据</td></tr>';
+      el.pkgTableBody.innerHTML = '<tr><td colspan="10" class="empty">暂无数据</td></tr>';
       el.pkgTableFoot.innerHTML = '';
-      clearRankPanel();
       renderSearchPanel();
       renderDebug();
       return;
@@ -1061,7 +918,6 @@
     renderTrend(ctx);
     renderShare(ctx);
     renderDow(ctx);
-    renderRankPanel(ctx);
     renderTable(ctx);
     renderSearchPanel();
     renderDebug();
