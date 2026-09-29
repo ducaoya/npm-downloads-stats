@@ -92,6 +92,33 @@
     <section class="panel">
       <div class="panel-head">
         <div class="panel-title">
+          <h2>包排名走势</h2>
+          <span class="hint" id="rankHint"></span>
+        </div>
+      </div>
+      <div class="chart chart-lg" id="rankChart"></div>
+      <p class="legend-note">名次 1 = 该周期下载量最高（项目内部排名）。纵轴已反转：越靠上名次越高；某周期没有下载量的包不参与排名，曲线断开。</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
+          <h2>搜索排名</h2>
+          <span class="hint" id="searchHint"></span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="searchTable">
+          <thead id="searchHead"></thead>
+          <tbody id="searchBody"></tbody>
+        </table>
+      </div>
+      <p class="legend-note" id="searchNote"></p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
           <h2>包明细</h2>
           <span class="hint" id="tableHint"></span>
         </div>
@@ -105,6 +132,7 @@
             <tr>
               <th class="sortable" data-sort="name">包名</th>
               <th class="sortable num" data-sort="window">区间内</th>
+              <th class="sortable num" data-sort="rank">排名</th>
               <th class="sortable num" data-sort="share">占比</th>
               <th class="sortable num" data-sort="today">今日</th>
               <th class="sortable num" data-sort="yesterday">昨日</th>

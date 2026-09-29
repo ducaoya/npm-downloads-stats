@@ -117,6 +117,8 @@
             var err = new Error('HTTP ' + res.status + ' ' + res.statusText + ' — ' + url);
             err.status = res.status;
             err.url = url;
+            var retryAfter = res.headers && res.headers.get ? Number(res.headers.get('retry-after')) : 0;
+            if (retryAfter > 0) err.retryAfter = retryAfter;
             throw err;
           }
           return res.json();
@@ -124,7 +126,11 @@
         .catch(function (err) {
           var retriable = err.status == null || err.status === 429 || err.status >= 500;
           if (attempt < maxAttempts && retriable) {
-            return sleep(400 * Math.pow(2, attempt - 1)).then(once);
+            var wait = 400 * Math.pow(2, attempt - 1);
+            // 限流（429）退避更久一些，并优先尊重服务端的 Retry-After
+            if (err.status === 429) wait = Math.max(wait, 1000 * attempt);
+            if (err.retryAfter) wait = Math.max(wait, err.retryAfter * 1000);
+            return sleep(wait).then(once);
           }
           throw err;
         });
@@ -388,11 +394,21 @@
           throw err;
         }
 
-        // 批量失败（限流 / 5xx 等）：退化为逐包请求
-        return mapLimit(packages, CONFIG.maxConcurrent, function (name) {
-          return fetchChunk([name], chunk, options).catch(function () {
-            return emptyResult([name]);
-          });
+        // 批量失败（限流 / 5xx 等）：退化为逐包请求。
+        //
+        // 关键：单个包的请求再失败时**必须抛出**，不能退化成「全是 0」——
+        // 否则页面会把「没取到」冒充成「真的 0 下载」，正是本项目要避免的误导。
+        // 抛弃部分失败后，成功的分片已经写入缓存，重试只会重拉失败的那一片。
+        return mapLimit(packages, Math.min(CONFIG.maxConcurrent, 2), function (name) {
+          return fetchChunk([name], chunk, options).then(
+            function (part) {
+              return part;
+            },
+            function (err) {
+              err.pkg = name;
+              throw err;
+            }
+          );
         }).then(function (parts) {
           var merged = emptyResult(packages);
           parts.forEach(function (part) {
@@ -469,6 +485,231 @@
     });
   }
 
+  /* ------------------------------------------------------------------ *
+   * 4. 搜索排名
+   *
+   * npm 搜索接口（registry.npmjs.org/-/v1/search）支持 CORS，可以前端直连，
+   * 但有两个必须知道的事实（均已实测）：
+   *
+   *   1. 排序由 score.final 决定（相关度 × 热度混合分），**不是下载量排序**，
+   *      也不是一个绝对值 —— 同一个包在不同关键词下名次完全不同。
+   *   2. size 上限 250；from 超过 5000 时服务端会「静默回绕到第 1 页」
+   *      （实测 from=5000 正常，from=5050 返回的又是第 1 页），且不会报错。
+   *
+   * 所以本模块把扫描窗口夹在 from + size ≤ searchMaxRank 内，扫不到就如实标注
+   * 「超出上限 / 未出现」，绝不伪造名次。
+   * ------------------------------------------------------------------ */
+
+  function searchPageSize() {
+    var size = CONFIG.searchPageSize || 250;
+    if (size > 250) size = 250; // npm 上限
+    if (size < 10) size = 10;
+    return size;
+  }
+
+  function searchWindow() {
+    var max = CONFIG.searchMaxRank || 5000;
+    if (max > 5000) max = 5000; // 回绕边界
+    if (max < 250) max = 250;
+    return max;
+  }
+
+  /** 把搜索接口返回的一条结果压成扁平结构 */
+  function normalizeHit(obj, rank) {
+    var p = (obj && obj.package) || {};
+    var score = (obj && obj.score) || {};
+    var detail = score.detail || {};
+    var dl = (obj && obj.downloads) || {};
+    function num(v) {
+      return typeof v === 'number' ? v : null;
+    }
+    return {
+      name: p.name || '',
+      version: p.version || '',
+      rank: rank,
+      final: num(score.final),
+      popularity: num(detail.popularity),
+      quality: num(detail.quality),
+      maintenance: num(detail.maintenance),
+      // 仅作参考：项目文档已说明搜索接口的 downloads 字段与 point 接口可能不一致，
+      // 页面上展示的下载量一律取自 point / range 接口。
+      weekly: num(dl.weekly),
+      monthly: num(dl.monthly),
+    };
+  }
+
+  /** 缓存是否还能用：扫到末尾 / 撞到窗口上限的结论是稳定的 */
+  function searchCacheReusable(payload, targets) {
+    if (!payload || !payload.found || typeof payload.scanned !== 'number') return false;
+    if (payload.complete || payload.capped) return true;
+    // 提前收工时，只有「当前目标全部都在缓存里」才可复用（否则可能新增了包）
+    return targets.every(function (name) {
+      return !!payload.found[name];
+    });
+  }
+
+  /** 把扫描结果整理成「命中 / 未出现 / 超出上限」三类 */
+  function finalizeSearch(payload, targets, fromCache) {
+    var matched = [];
+    var absent = [];
+    var beyond = [];
+
+    targets.forEach(function (name) {
+      var hit = payload.found[name];
+      if (hit) {
+        matched.push(hit);
+      } else if (payload.complete) {
+        // 已经扫完该关键词的全部结果，说明确实不在里面
+        absent.push(name);
+      } else {
+        // 扫描窗口已到顶（npm 只允许前 5000 名）
+        beyond.push(name);
+      }
+    });
+
+    matched.sort(function (a, b) {
+      return a.rank - b.rank;
+    });
+
+    return {
+      keyword: payload.keyword,
+      total: payload.total,
+      scanned: payload.scanned,
+      limit: payload.limit,
+      complete: !!payload.complete,
+      capped: !!payload.capped,
+      matched: matched,
+      absent: absent,
+      beyond: beyond,
+      fetchedAt: payload.fetchedAt || Date.now(),
+      fromCache: !!fromCache,
+    };
+  }
+
+  /**
+   * 在单个关键词下定位目标包的搜索名次。
+   *
+   * @param {string} keyword 搜索词（如 maintinaer:xxx / sse-viewer / keywords:cli）
+   * @param {string[]} targets 目标包名
+   * @param {{force?:boolean,onProgress?:function(string,number,number)}} [options]
+   * @returns Promise<{keyword,total,scanned,limit,complete,capped,matched,absent,beyond,fetchedAt,fromCache}>
+   */
+  function searchRank(keyword, targets, options) {
+    options = options || {};
+    var list = (targets || []).filter(Boolean);
+    if (!keyword || !list.length) {
+      return Promise.resolve({
+        keyword: keyword, total: null, scanned: 0, limit: searchWindow(),
+        complete: true, capped: false, matched: [], absent: list.slice(), beyond: [],
+        fetchedAt: Date.now(), fromCache: false,
+      });
+    }
+
+    var size = searchPageSize();
+    var maxRank = searchWindow();
+    var maxFrom = maxRank - size > 0 ? maxRank - size : 0;
+    var cacheKey = 'search:v1:' + hash(String(keyword).toLowerCase());
+
+    if (!options.force) {
+      var cached = cacheGet(cacheKey, CONFIG.searchCacheTTL);
+      if (cached && searchCacheReusable(cached, list)) {
+        return Promise.resolve(finalizeSearch(cached, list, true));
+      }
+    }
+
+    var found = {};
+    var scanned = 0;
+    var total = null;
+    var complete = false;
+    var capped = false;
+    var from = 0;
+
+    function page() {
+      var url =
+        'https://registry.npmjs.org/-/v1/search?text=' +
+        encodeURIComponent(keyword) + '&size=' + size + '&from=' + from;
+
+      return fetchJSON(url).then(function (json) {
+        var objects = (json && json.objects) || [];
+        if (total == null) {
+          total = typeof json.total === 'number' ? json.total : null;
+        }
+
+        objects.forEach(function (obj, i) {
+          var hit = normalizeHit(obj, from + i + 1);
+          if (!hit.name) return;
+          scanned++;
+          if (found[hit.name]) return;
+          if (list.indexOf(hit.name) >= 0) found[hit.name] = hit;
+        });
+
+        var missing = list.filter(function (name) {
+          return !found[name];
+        });
+
+        if (objects.length < size) {
+          // 短页 = 结果集到底了
+          complete = true;
+          return;
+        }
+        if (!missing.length) {
+          // 目标全部找到，提前收工，省掉后面的翻页
+          return;
+        }
+        if (from >= maxFrom) {
+          // 已到 npm 允许的最大窗口（from 再大就会静默回绕到第 1 页）
+          capped = true;
+          return;
+        }
+
+        from += size;
+        if (typeof options.onProgress === 'function') {
+          options.onProgress(keyword, scanned, total);
+        }
+        return page();
+      });
+    }
+
+    return page().then(function () {
+      var payload = {
+        keyword: keyword,
+        total: total,
+        scanned: scanned,
+        limit: maxRank,
+        complete: complete,
+        capped: capped,
+        found: found,
+        fetchedAt: Date.now(),
+      };
+      cacheSet(cacheKey, payload);
+      return finalizeSearch(payload, list, false);
+    });
+  }
+
+  /** 批量关键词（并发 2，单个关键词失败不影响其它） */
+  function searchRanks(keywords, targets, options) {
+    options = options || {};
+    var list = (keywords || []).filter(Boolean);
+    return mapLimit(list, Math.min(CONFIG.maxConcurrent, 2), function (keyword) {
+      return searchRank(keyword, targets, options).catch(function (err) {
+        return {
+          keyword: keyword,
+          total: null,
+          scanned: 0,
+          limit: searchWindow(),
+          complete: false,
+          capped: false,
+          matched: [],
+          absent: [],
+          beyond: [],
+          fetchedAt: Date.now(),
+          fromCache: false,
+          error: (err && err.message) || String(err),
+        };
+      });
+    });
+  }
+
   global.NpmApi = {
     toISO: toISO,
     parseISO: parseISO,
@@ -482,6 +723,10 @@
     fetchPackagesMeta: fetchPackagesMeta,
     fetchDownloadSeries: fetchDownloadSeries,
     buildChunks: buildChunks,
+    searchRank: searchRank,
+    searchRanks: searchRanks,
+    searchPageSize: searchPageSize,
+    searchWindow: searchWindow,
     cacheGet: cacheGet,
     cacheSet: cacheSet,
     cacheClearAll: cacheClearAll,

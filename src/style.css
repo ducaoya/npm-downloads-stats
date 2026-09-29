@@ -805,3 +805,61 @@ a.link:hover {
     font-size: 17px;
   }
 }
+
+/* --------------------------------- 排名 ---------------------------------- */
+
+.rank-cell {
+  white-space: nowrap;
+}
+
+.rank-num {
+  display: inline-block;
+  min-width: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-num.rank-top {
+  color: var(--accent);
+}
+
+.rank-delta {
+  margin-left: 5px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rank-delta.up {
+  color: var(--up);
+}
+
+.rank-delta.down {
+  color: var(--down);
+}
+
+.rank-delta.flat {
+  color: var(--text-mute);
+}
+
+.rank-none,
+.rank-unknown {
+  color: var(--text-mute);
+  cursor: help;
+}
+
+.rank-unknown {
+  font-size: 11.5px;
+}
+
+.rank-score {
+  margin-left: 6px;
+  font-size: 10.5px;
+  color: var(--text-mute);
+}
+
+.th-sub {
+  display: block;
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-mute);
+}

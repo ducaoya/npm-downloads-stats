@@ -261,6 +261,68 @@
     }
   }
 
+  /**
+   * 按数值降序排名（1 = 最高）。
+   *
+   * - 并列同名次（采用「最小名次」，如 5 / 5 / 3 → 1 / 1 / 3）
+   * - 数值为 0 的包记为「未上榜」（rank = null），不参与名次编排
+   *
+   * @returns Array<{name:string, value:number, rank:number|null}>（已按名次排序）
+   */
+  function rankByValue(byPackage, packages) {
+    var rows = (packages || []).map(function (name) {
+      return { name: name, value: (byPackage && byPackage[name]) || 0 };
+    });
+
+    rows.sort(function (a, b) {
+      if (b.value !== a.value) return b.value - a.value;
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    });
+
+    var rank = 0;
+    var prevValue = null;
+    rows.forEach(function (row, i) {
+      if (row.value <= 0) {
+        row.rank = null;
+        return;
+      }
+      if (prevValue === null || row.value !== prevValue) rank = i + 1;
+      row.rank = rank;
+      prevValue = row.value;
+    });
+
+    return rows;
+  }
+
+  /**
+   * 名次走势：按粒度分桶，每桶内部按下载量排名（项目内排名，非 npm 全站排名）。
+   *
+   * @returns {{buckets:Array, series:{pkg:Array<number|null>}, rows:Array}}
+   */
+  function rankSeries(daily, packages, granularity, startISO, endISO) {
+    var buckets = aggregate(daily, packages, granularity, startISO, endISO);
+    var series = {};
+    packages.forEach(function (name) {
+      series[name] = [];
+    });
+
+    var rows = buckets.map(function (bucket) {
+      var ranked = rankByValue(bucket.values, packages);
+      ranked.forEach(function (row) {
+        series[row.name].push(row.rank);
+      });
+      return {
+        key: bucket.key,
+        label: bucket.label,
+        fullLabel: bucket.fullLabel,
+        total: bucket.total,
+        rows: ranked,
+      };
+    });
+
+    return { buckets: buckets, series: series, rows: rows };
+  }
+
   function formatNumber(n) {
     if (n == null || isNaN(n)) return '—';
     return Number(n).toLocaleString('en-US');
@@ -279,6 +341,8 @@
     continuousDays: continuousDays,
     sumWindow: sumWindow,
     aggregate: aggregate,
+    rankByValue: rankByValue,
+    rankSeries: rankSeries,
     dowDistribution: dowDistribution,
     resolvePreset: resolvePreset,
     formatNumber: formatNumber,

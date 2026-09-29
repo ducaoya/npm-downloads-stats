@@ -484,6 +484,169 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * 4. 名次走势（名次 1 在最上方 —— 纵轴反转）
+   * ------------------------------------------------------------------ */
+
+  function rankTooltipFormatter(options) {
+    var rows = options.rows || [];
+    return function (params) {
+      if (!params || !params.length) return '';
+      var bucket = rows[params[0].dataIndex];
+      if (!bucket) return '';
+
+      var html = '<div style="font-weight:600;margin-bottom:6px">' + bucket.fullLabel + '</div>';
+      html +=
+        '<div style="margin-bottom:6px;opacity:.75">合计 ' +
+        global.Aggregate.formatNumber(bucket.total) + ' 次下载</div>';
+
+      var list = bucket.rows.filter(function (r) {
+        return r.rank != null;
+      });
+      if (!list.length) {
+        html += '<div style="opacity:.6">该周期无下载量</div>';
+        return html;
+      }
+      var colorOf = options.colorOf || function () { return PALETTE[0]; };
+      html += list
+        .map(function (r) {
+          return (
+            '<div style="display:flex;align-items:center;gap:8px;line-height:1.8">' +
+            '<span style="width:8px;height:8px;border-radius:50%;background:' + colorOf(r.name) + '"></span>' +
+            '<span style="width:22px;text-align:right;font-weight:700">' + r.rank + '</span>' +
+            '<span style="flex:1;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + r.name + '</span>' +
+            '<span style="font-variant-numeric:tabular-nums;opacity:.85">' + r.value.toLocaleString('en-US') + '</span>' +
+            '</div>'
+          );
+        })
+        .join('');
+      return html;
+    };
+  }
+
+  function renderRank(el, options) {
+    var chart = getChart(el);
+    if (!chart) return;
+    var c = themeColors();
+    var buckets = options.buckets || [];
+    var packages = options.packages || [];
+    var colors = options.colors || paletteFor(packages.length);
+    var series = options.series || {};
+    var colorMap = {};
+    packages.forEach(function (name, i) {
+      colorMap[name] = colors[i % colors.length];
+    });
+    function colorOf(name) {
+      return colorMap[name] || PALETTE[0];
+    }
+
+    var maxRank = 0;
+    packages.forEach(function (name) {
+      (series[name] || []).forEach(function (r) {
+        if (r != null && r > maxRank) maxRank = r;
+      });
+    });
+    if (!maxRank) maxRank = Math.max(packages.length, 1);
+
+    if (!buckets.length || !packages.length) {
+      chart.setOption(
+        {
+          backgroundColor: 'transparent',
+          title: {
+            text: '暂无名次数据',
+            left: 'center',
+            top: 'middle',
+            textStyle: { color: c.axis, fontSize: 13, fontWeight: 'normal' },
+          },
+          series: [],
+        },
+        true
+      );
+      return;
+    }
+
+    var option = {
+      backgroundColor: 'transparent',
+      animationDuration: 420,
+      animationEasing: 'cubicOut',
+      color: colors,
+      grid: {
+        left: 4,
+        right: 16,
+        top: packages.length > 1 ? 46 : 22,
+        bottom: 6,
+        containLabel: true,
+      },
+      tooltip: Object.assign(baseTooltip(c), {
+        trigger: 'axis',
+        axisPointer: { type: 'line', lineStyle: { color: c.axis, type: 'dashed' } },
+        formatter: rankTooltipFormatter({ rows: options.rows || [], colorOf: colorOf }),
+        confine: true,
+      }),
+      legend: {
+        type: 'scroll',
+        top: 2,
+        left: 0,
+        icon: 'circle',
+        itemWidth: 9,
+        itemHeight: 9,
+        itemGap: 14,
+        textStyle: { color: c.text, fontSize: 12 },
+        pageTextStyle: { color: c.axis },
+        pageIconColor: c.axis,
+        pageIconInactiveColor: c.split,
+      },
+      xAxis: {
+        type: 'category',
+        data: buckets.map(function (b) {
+          return b.label;
+        }),
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: c.split } },
+        axisTick: { show: false },
+        axisLabel: { color: c.axis, fontSize: 11, hideOverlap: true },
+        axisPointer: { label: { show: false } },
+      },
+      yAxis: {
+        type: 'value',
+        inverse: true,
+        min: 1,
+        max: maxRank + (maxRank > 1 ? 1 : 0),
+        minInterval: 1,
+        name: '名次',
+        nameTextStyle: { color: c.axis, fontSize: 11, align: 'left' },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: {
+          color: c.axis,
+          fontSize: 11,
+          formatter: function (v) {
+            return v === Math.floor(v) ? v : '';
+          },
+        },
+        splitLine: { lineStyle: { color: c.split, type: 'dashed' } },
+      },
+      series: packages.map(function (name, i) {
+        var color = colors[i % colors.length];
+        return {
+          name: name,
+          type: 'line',
+          step: 'end',
+          connectNulls: true,
+          data: series[name] || [],
+          symbol: 'circle',
+          symbolSize: buckets.length > 60 ? 0 : 7,
+          showSymbol: buckets.length <= 60,
+          lineStyle: { width: 2, color: color },
+          itemStyle: { color: color },
+          emphasis: { focus: 'series' },
+        };
+      }),
+    };
+
+    chart.setOption(option, true);
+  }
+
+  /* ------------------------------------------------------------------ *
    * 生命周期
    * ------------------------------------------------------------------ */
 
@@ -508,6 +671,7 @@
     themeColors: themeColors,
     renderTrend: renderTrend,
     renderShare: renderShare,
+    renderRank: renderRank,
     renderDow: renderDow,
     resize: resize,
     disposeAll: disposeAll,

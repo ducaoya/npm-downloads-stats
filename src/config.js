@@ -33,6 +33,32 @@ window.APP_CONFIG = {
   /** 单个请求的最大重试次数 */
   retries: 3,
 
+  /**
+   * 搜索排名关键词。每个关键词会用 registry 搜索接口翻页扫描，定位自己包的名次。
+   *
+   * 留空（[]）时自动退化为 ['maintainer:<username>']，即「在自己所有包里的搜索名次」。
+   * 建议只放「窄查询」：包名片段、maintainer:xxx、keywords:xxx。
+   * 泛关键词（如 figma）基本查不到自己的包，名次会显示为「> 上限」或「未出现」。
+   */
+  searchKeywords: [
+    // 'maintainer:ducaoya',
+    // 'sse-viewer',
+  ],
+
+  /**
+   * 搜索排名最多扫描到第几名。
+   *
+   * npm 搜索接口的硬限制：from 超过 5000 会「静默回绕到第 1 页」而不是报错，
+   * 因此这里上限 5000，超出的包如实显示「> 5000」，不伪造名次。
+   */
+  searchMaxRank: 5000,
+
+  /** 搜索排名每页条数（npm 上限 250，代码内会自行夹紧） */
+  searchPageSize: 250,
+
+  /** 搜索排名缓存有效期（毫秒），默认 12 小时（排名变化慢，且翻页请求较重） */
+  searchCacheTTL: 12 * 60 * 60 * 1000,
+
   /** 默认时间粒度：day | week | month | year */
   defaultGranularity: 'day',
 
