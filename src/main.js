@@ -303,7 +303,8 @@
         if (!minDay || minDay < FALLBACK_START) minDay = FALLBACK_START;
 
         state.minDay = minDay;
-        state.maxDay = api.todayISO();
+        // 数据上限 = 昨天：npm 不提供当天数据（range 会为今天补 0），详见 api.yesterdayISO()
+        state.maxDay = api.yesterdayISO();
         if (state.maxDay < state.minDay) state.maxDay = state.minDay;
 
         showLoading('正在拉取下载量数据…');
@@ -597,7 +598,7 @@
     return Agg.sumWindow(state.daily, state.packages, c.start, c.end);
   }
 
-  /** 所有汇总窗口（用当前选中的最新日期作为锚点） */
+  /** 所有汇总窗口（锚点 = 最新可用的一天，也就是昨天） */
   function buildWindows() {
     var end = state.maxDay;
     var endDate = api.parseISO(end);
@@ -609,8 +610,8 @@
     }
 
     var wins = {
-      today: { start: end, end: end },
-      yesterday: { start: back(1), end: back(1) },
+      // 不再有「今日」：npm 当天数据不提供，最新一天就是昨天
+      yesterday: { start: end, end: end },
       d7: { start: back(6), end: end },
       d30: { start: back(29), end: end },
       month: { start: year + '-' + month + '-01', end: end },
@@ -623,8 +624,7 @@
       sums[k] = sumOf(wins[k]);
     });
 
-    sums.today.prev = sumOf(wins.yesterday);
-    sums.yesterday.prev = sumOf({ start: back(2), end: back(2) });
+    sums.yesterday.prev = sumOf({ start: back(1), end: back(1) });
     var p7 = previousPeriod(wins.d7.start, wins.d7.end);
     var p30 = previousPeriod(wins.d30.start, wins.d30.end);
     var pm = previousPeriod(wins.month.start, wins.month.end);
@@ -662,8 +662,7 @@
   function renderCards(ctx) {
     var s = ctx.sums;
     var defs = [
-      // 今日数据 npm 尚未统计完整，不做同比，只做提示
-      { key: 'today', label: '今日', value: s.today.total, prev: s.today.total > 0 ? s.today.prev : null, note: '统计中，通常次日完整' },
+      // 最新一天就是昨天：npm 不提供当天数据；昨天也可能到今天的某个时刻才刷出来，读到 0 就显示 0
       { key: 'yesterday', label: '昨日', value: s.yesterday.total, prev: s.yesterday.prev },
       { key: 'd7', label: '近 7 天', value: s.d7.total, prev: s.d7.prev },
       { key: 'd30', label: '近 30 天', value: s.d30.total, prev: s.d30.prev },
@@ -959,7 +958,6 @@
         name: name,
         version: meta.latestVersion || '',
         window: s.cur.byPackage[name] || 0,
-        today: s.today.byPackage[name] || 0,
         yesterday: s.yesterday.byPackage[name] || 0,
         week: s.d7.byPackage[name] || 0,
         month: s.d30.byPackage[name] || 0,
@@ -997,7 +995,6 @@
           '<td class="num' + (nIdx ? ' not-indexed' : '') + '"' + (nIdx ? ' title="' + NOT_INDEXED_TIP + '"' : '') + '>' +
           (nIdx || !r.share ? '—' : r.share.toFixed(1) + '%') +
           '</td>' +
-          numCell(r.today, '', nIdx) +
           numCell(r.yesterday, '', nIdx) +
           numCell(r.week, '', nIdx) +
           numCell(r.month, '', nIdx) +
@@ -1010,7 +1007,7 @@
       .join('');
 
     var totals = {
-      window: s.cur.total, today: s.today.total, yesterday: s.yesterday.total,
+      window: s.cur.total, yesterday: s.yesterday.total,
       week: s.d7.total, month: s.d30.total, ytd: s.ytd.total, total: s.all.total,
     };
     var totalLabel = '合计（' + rows.length + ' 个包';
@@ -1025,7 +1022,6 @@
       '<td>' + totalLabel + '</td>' +
       '<td class="num strong">' + Agg.formatNumber(totals.window) + '</td>' +
       '<td class="num">100%</td>' +
-      '<td class="num">' + Agg.formatNumber(totals.today) + '</td>' +
       '<td class="num">' + Agg.formatNumber(totals.yesterday) + '</td>' +
       '<td class="num">' + Agg.formatNumber(totals.week) + '</td>' +
       '<td class="num">' + Agg.formatNumber(totals.month) + '</td>' +
@@ -1147,7 +1143,7 @@
       el.trendHint.textContent = '';
       el.shareHint.textContent = '';
       el.tableHint.textContent = '';
-      el.pkgTableBody.innerHTML = '<tr><td colspan="10" class="empty">' + emptyMessage() + '</td></tr>';
+      el.pkgTableBody.innerHTML = '<tr><td colspan="9" class="empty">' + emptyMessage() + '</td></tr>';
       el.pkgTableFoot.innerHTML = '';
       renderSearchPanel();
       renderDebug();

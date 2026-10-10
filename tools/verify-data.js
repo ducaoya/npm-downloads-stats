@@ -110,7 +110,7 @@ function daysInclusive(start, end) {
     if (c && (!minDay || c < minDay)) minDay = c;
   });
   if (!minDay || minDay < '2015-01-01') minDay = '2015-01-01';
-  const maxDay = api.todayISO();
+  const maxDay = api.yesterdayISO();
 
   const res = await api.fetchDownloadSeries(names, minDay, maxDay, { force: true });
   const daily = Agg.buildDaily(res.series, names);

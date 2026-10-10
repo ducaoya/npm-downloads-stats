@@ -45,6 +45,17 @@
     return toISO(new Date());
   }
 
+  /**
+   * 昨天（本地日历日）。
+   *
+   * npm 的下载量按 UTC 每天批处理一次，**当天数据不提供**（实测 range 接口会为今天补 0，
+   * point/last-day 指向的更早），所以看板的数据上限取昨天：
+   * 昨天可能在今天的某个时刻才刷出来，页面不因此隐藏，读到 0 就如实显示 0。
+   */
+  function yesterdayISO() {
+    return toISO(addDays(new Date(), -1));
+  }
+
   function sleep(ms) {
     return new Promise(function (resolve) {
       setTimeout(resolve, ms);
@@ -779,6 +790,7 @@
     parseISO: parseISO,
     addDays: addDays,
     todayISO: todayISO,
+    yesterdayISO: yesterdayISO,
     hash: hash,
     fetchJSON: fetchJSON,
     mapLimit: mapLimit,

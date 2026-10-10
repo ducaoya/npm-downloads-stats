@@ -188,7 +188,6 @@
               <th class="sortable" data-sort="name">包名</th>
               <th class="sortable num" data-sort="window">区间内</th>
               <th class="sortable num" data-sort="share">占比</th>
-              <th class="sortable num" data-sort="today">今日</th>
               <th class="sortable num" data-sort="yesterday">昨日</th>
               <th class="sortable num" data-sort="week">近 7 天</th>
               <th class="sortable num" data-sort="month">近 30 天</th>
@@ -227,8 +226,8 @@
           <dd>支持。仓库里 <code>config.js</code> 的 <code>extraPackages</code> / <code>excludePackages</code> / <code>autoDiscover</code> 等个人化覆盖只对默认用户生效，其他人切换进来时一律按其真实包列表统计。</dd>
           <dt>为什么有的包显示「—」而不是 0？</dt>
           <dd>该包尚未被 npm 下载量服务收录（新包一般需要 24~48 小时），它与「已收录但下载量为 0」是两回事，所以不显示 0，以免误导。</dd>
-          <dt>为什么今天的数字偏小？</dt>
-          <dd>npm 的下载量按 UTC 每天批处理一次，当天数据通常次日才完整。</dd>
+          <dt>为什么看不到今天的数据？</dt>
+          <dd>npm 的下载量按 UTC 每天批处理一次，<strong>不提供当天数据</strong>（接口会为今天直接补 0），所以看板的数据上限就是<strong>昨天</strong>。昨天的数字通常要到今天某个时刻才刷出来，因此这里不做隐藏：若还没刷出来，「昨日」就会显示 0（可稍后刷新）。</dd>
           <dt>「搜索排名」是下载量排名吗？</dt>
           <dd>不是。它是 npm 搜索结果里的顺序（按 <code>score.final</code>，即相关度 × 热度），换个关键词名次就不同；npm 接口只允许翻页到前 5000 名，超出会显示 <code>&gt; 5000</code>，结果集里没有的包显示「未出现」。</dd>
         </dl>

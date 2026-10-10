@@ -34,7 +34,8 @@
   }
 
   /**
-   * 把 { pkg: { day: n } } 转成 { day: { pkg: n } }，并丢弃全 0 的尾部（今日尚未统计完成时会出现 0）
+   * 把 { pkg: { day: n } } 转成 { day: { pkg: n } }，并给当天缺失的包补 0。
+   * （数据上限是昨天；昨天可能还没刷出来，这里保留 0 而不隐藏）
    */
   function buildDaily(series, packages) {
     var daily = {};
